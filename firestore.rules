@@ -1,0 +1,96 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'bharathidharani52@gmail.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Collections ---
+
+    // Users
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isSignedIn() && isOwner(userId) && 
+                      incoming().role == 'devotee' && // Default role
+                      incoming().keys().hasAll(['uid', 'email', 'role', 'createdAt']) &&
+                      incoming().keys().size() == 5;
+      allow update: if (isOwner(userId) || isAdmin()) && 
+                      (
+                        // Devotees can only update non-role fields
+                        (isOwner(userId) && !isAdmin() && !incoming().diff(existing()).affectedKeys().hasAny(['role', 'uid', 'email'])) ||
+                        // Admins can update everything
+                        isAdmin()
+                      );
+    }
+
+    // Exams
+    match /exams/{examId} {
+      allow read: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isAdmin() && 
+                      incoming().keys().hasAll(['title', 'bookTitle', 'creatorId', 'totalQuestions', 'createdAt']) &&
+                      incoming().creatorId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+
+      // Questions Subcollection
+      match /questions/{questionId} {
+        allow read: if isSignedIn(); // Devotees need to read questions to take exams
+        allow write: if isAdmin();
+      }
+    }
+
+    // Submissions
+    match /submissions/{submissionId} {
+      allow read: if isSignedIn() && (isOwner(existing().userId) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isEmailVerified() && 
+                      incoming().userId == request.auth.uid &&
+                      incoming().keys().hasAll(['userId', 'examId', 'examTitle', 'score', 'total', 'answers', 'completedAt']) &&
+                      incoming().answers is list &&
+                      incoming().answers.size() > 0;
+      allow update, delete: if false; // Submissions are immutable
+    }
+
+    // Test connection path
+    match /test/connection {
+      allow get: if true;
+    }
+  }
+}

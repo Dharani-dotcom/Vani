@@ -1,0 +1,78 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents a user in the system (Devotee or Admin)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "devotee"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Exam": {
+      "title": "Exam",
+      "description": "An exam based on a specific book or topic",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "bookTitle": { "type": "string" },
+        "durationMinutes": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "creatorId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "bookTitle", "creatorId"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "A multiple choice question for an exam",
+      "type": "object",
+      "properties": {
+        "questionText": { "type": "string" },
+        "options": { "type": "array" },
+        "correctOptionIndex": { "type": "number" },
+        "explanation": { "type": "string" },
+        "order": { "type": "number" }
+      },
+      "required": ["questionText", "options", "correctOptionIndex"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "A devotee's exam submission",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "examId": { "type": "string" },
+        "examTitle": { "type": "string" },
+        "score": { "type": "number" },
+        "total": { "type": "number" },
+        "answers": { "type": "array" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "examId", "examTitle", "score", "total"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/exams/{examId}": {
+      "schema": "Exam",
+      "description": "Exam definitions"
+    },
+    "/exams/{examId}/questions/{questionId}": {
+      "schema": "Question",
+      "description": "Questions within an exam"
+    },
+    "/submissions/{submissionId}": {
+      "schema": "Submission",
+      "description": "Exam results"
+    }
+  }
+}
