@@ -21,6 +21,7 @@ export interface Exam {
   totalQuestions: number;
   creatorId: string;
   createdAt: string;
+  questions?: Question[];
 }
 
 export interface Submission {
@@ -48,24 +49,37 @@ export interface Question {
 }
 
 export const api = {
+  async fetchWithLog(url: string, options?: RequestInit) {
+    const res = await fetch(url, options);
+    if (!res.ok) {
+      const text = await res.text();
+      let msg = `Server error ${res.status}: ${text.slice(0, 100)}`;
+      if (text.startsWith('<!DOCTYPE html>') || text.startsWith('The page')) {
+        msg = `Backend unreachable or returned HTML. (Status ${res.status})`;
+      }
+      throw new Error(msg);
+    }
+    return res;
+  },
+
   async getExams(): Promise<Exam[]> {
-    const res = await fetch(`${BASE_URL}/api/exams`);
+    const res = await this.fetchWithLog('/api/exams');
     return res.json();
   },
 
   async getExam(id: string): Promise<Exam> {
-    const res = await fetch(`${BASE_URL}/api/exams`);
+    const res = await this.fetchWithLog('/api/exams');
     const all: Exam[] = await res.json();
     return all.find(e => e.id === id)!;
   },
 
   async getQuestions(examId: string): Promise<Question[]> {
-    const res = await fetch(`${BASE_URL}/api/exams/${examId}/questions`);
+    const res = await this.fetchWithLog(`/api/exams/${examId}/questions`);
     return res.json();
   },
 
   async createQuestion(examId: string, q: Omit<Question, 'id'>): Promise<Question> {
-    const res = await fetch(`${BASE_URL}/api/exams/${examId}/questions`, {
+    const res = await this.fetchWithLog(`/api/exams/${examId}/questions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(q)
@@ -74,7 +88,7 @@ export const api = {
   },
   
   async createExam(exam: Omit<Exam, 'id' | 'createdAt'>): Promise<Exam> {
-    const res = await fetch(`${BASE_URL}/api/exams`, {
+    const res = await this.fetchWithLog('/api/exams', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(exam)
@@ -83,11 +97,11 @@ export const api = {
   },
 
   async deleteExam(id: string): Promise<void> {
-    await fetch(`${BASE_URL}/api/exams/${id}`, { method: 'DELETE' });
+    await this.fetchWithLog(`/api/exams/${id}`, { method: 'DELETE' });
   },
 
   async getSubmissions(userId?: string): Promise<Submission[]> {
-    const res = await fetch(`${BASE_URL}/api/submissions`);
+    const res = await this.fetchWithLog('/api/submissions');
     const all: Submission[] = await res.json();
     if (userId) {
       return all.filter(s => s.userId === userId);
@@ -96,7 +110,7 @@ export const api = {
   },
 
   async createSubmission(sub: Omit<Submission, 'id' | 'completedAt'>): Promise<Submission> {
-    const res = await fetch(`${BASE_URL}/api/submissions`, {
+    const res = await this.fetchWithLog('/api/submissions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sub)
@@ -105,7 +119,7 @@ export const api = {
   },
 
   async certifySubmission(id: string): Promise<void> {
-    await fetch(`${BASE_URL}/api/submissions/${id}`, {
+    await this.fetchWithLog(`/api/submissions/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isCertified: true })
@@ -113,20 +127,17 @@ export const api = {
   },
 
   async getUsers(): Promise<UserProfile[]> {
-    const res = await fetch(`${BASE_URL}/api/users`);
+    const res = await this.fetchWithLog('/api/users');
     return res.json();
   },
 
   async login(payload: { email?: string, password?: string, name?: string, type: 'admin' | 'devotee' }): Promise<UserProfile> {
-    const res = await fetch(`${BASE_URL}/api/login`, {
+    const res = await this.fetchWithLog('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Authentication failed');
-    }
     return res.json();
   }
 };
+
