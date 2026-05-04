@@ -511,6 +511,7 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
   const [answers, setAnswers] = useState<(number | string)[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGrading, setIsGrading] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
 
   useEffect(() => {
@@ -551,70 +552,62 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
 
   const submitExam = async () => {
     setIsSubmitting(true);
+    setIsGrading(true);
     try {
-      let score = 0;
-      const results: { correct: boolean; score: number }[] = [];
-
-      // Process MCQ scores immediately
-      for (let i = 0; i < questions.length; i++) {
-        const q = questions[i];
+      const gradingPromises = questions.map(async (q, i) => {
         const ans = answers[i];
-
         if (q.type === 'mcq') {
           const isCorrect = ans === q.correctOptionIndex;
-          if (isCorrect) score++;
-          results.push({ correct: isCorrect, score: isCorrect ? 1 : 0 });
+          return { score: isCorrect ? 1 : 0, correct: isCorrect };
         } else {
-          // Descriptive - Use AI to grade
           try {
-            const aiScoreResult = await gradeDescriptiveAnswer(q.questionText, q.idealAnswer || '', ans as string);
-            score += aiScoreResult;
-            results.push({ correct: aiScoreResult >= 0.7, score: aiScoreResult });
+            const s = await gradeDescriptiveAnswer(q.questionText, q.idealAnswer || '', ans as string);
+            return { score: s, correct: s >= 0.7 };
           } catch (e) {
             console.error("AI Grading failed", e);
-            results.push({ correct: false, score: 0 }); // Fallback
+            return { score: 0, correct: false };
           }
         }
-      }
+      });
 
+      const gradedResults = await Promise.all(gradingPromises);
+      const totalScore = gradedResults.reduce((acc, curr) => acc + curr.score, 0);
+      
       const submission: Omit<Submission, 'id'> = {
         userId,
         examId,
         examTitle: exam?.title || 'Unknown Exam',
-        score: Math.round(score * 10) / 10,
+        score: Math.round(totalScore * 10) / 10,
         total: questions.length,
         answers,
-        results,
+        results: gradedResults.map(r => ({ correct: r.correct, score: r.score })),
         completedAt: serverTimestamp(),
       };
 
       await setDoc(doc(collection(db, 'submissions')), submission);
+      setIsGrading(false);
       onComplete();
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'submissions');
+      setIsGrading(false);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   async function gradeDescriptiveAnswer(question: string, ideal: string, devoteeAnswer: string): Promise<number> {
-    const { GoogleGenAI } = await import('@google/genai');
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
-    
-    const prompt = `Grade the following response to a quiz question about Srila Prabhupada's books.
-    Question: ${question}
-    Ideal Answer: ${ideal}
-    Devotee Answer: ${devoteeAnswer}
-    
-    Return ONLY a numerical score between 0.0 and 1.0, where 1.0 is perfectly correct and matches the essence of the ideal answer, and 0.0 is completely wrong. No other text.`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash-exp",
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    });
-    
-    const text = response.candidates?.[0]?.content?.parts?.[0]?.text || "0";
-    return parseFloat(text.trim()) || 0;
+    try {
+      const response = await fetch('/api/grade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, ideal, answer: devoteeAnswer }),
+      });
+      const data = await response.json();
+      return data.score || 0;
+    } catch (error) {
+      console.error("API Grading failed", error);
+      return 0;
+    }
   }
 
   if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-[#FF9933]" /></div>;
@@ -704,7 +697,7 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
           </AnimatePresence>
 
           <div className="flex gap-4">
-            {!showExplanation && answers[currentIndex] !== -1 && (
+            {!showExplanation && answers[currentIndex] !== -1 && !isGrading && (
               <button 
                 onClick={() => setShowExplanation(true)}
                 className="flex-1 py-4 px-6 border-2 border-blue-200 text-blue-600 rounded-2xl font-bold hover:bg-blue-50 transition-colors"
@@ -718,7 +711,10 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
               className="flex-[2] bg-[#FF9933] text-white py-4 px-6 rounded-2xl font-bold shadow-lg shadow-[#FF9933]/30 disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
-                <Loader2 className="animate-spin" size={24} />
+                <div className="flex items-center gap-2">
+                  <Loader2 className="animate-spin" size={24} />
+                  <span>{isGrading ? 'AI Grading...' : 'Submitting...'}</span>
+                </div>
               ) : (
                 <>
                   {currentIndex === questions.length - 1 ? 'Finish Exam' : 'Next Question'} 
@@ -850,21 +846,32 @@ function ResultsView({ userId }: { userId: string }) {
 
 function AdminPanel() {
   const [exams, setExams] = useState<Exam[]>([]);
+  const [allSubmissions, setAllSubmissions] = useState<Submission[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'exams' | 'submissions'>('exams');
   const [showAddExam, setShowAddExam] = useState(false);
+  
   const [newExam, setNewExam] = useState<Partial<Exam>>({
     title: '', description: '', bookTitle: '', durationMinutes: 30
   });
 
-  const fetchExams = async () => {
+  const loadData = async () => {
+    setLoading(true);
     try {
-      const snap = await getDocs(query(collection(db, 'exams')));
-      setExams(snap.docs.map(d => ({ id: d.id, ...d.data() } as Exam)));
-    } catch (e) { handleFirestoreError(e, OperationType.GET, 'exams'); }
-    finally { setLoading(false); }
+      const examSnap = await getDocs(query(collection(db, 'exams')));
+      setExams(examSnap.docs.map(d => ({ id: d.id, ...d.data() } as Exam)));
+      
+      const subSnap = await getDocs(query(collection(db, 'submissions')));
+      setAllSubmissions(subSnap.docs.map(d => ({ id: d.id, ...d.data() } as Submission)).sort((a,b) => (b.completedAt?.seconds || 0) - (a.completedAt?.seconds || 0)));
+
+      const userSnap = await getDocs(query(collection(db, 'users')));
+      setUsers(userSnap.docs.map(d => ({ id: d.id, ...d.data() } as any as UserProfile)));
+    } catch (err) { handleFirestoreError(err, OperationType.GET, 'admin-data'); }
+    setLoading(false);
   };
 
-  useEffect(() => { fetchExams(); }, []);
+  useEffect(() => { loadData(); }, []);
 
   const handleCreateExam = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -879,121 +886,126 @@ function AdminPanel() {
       await setDoc(examRef, examData);
       setShowAddExam(false);
       setNewExam({ title: '', description: '', bookTitle: '', durationMinutes: 30 });
-      fetchExams();
+      loadData();
     } catch (err) { handleFirestoreError(err, OperationType.WRITE, 'exams'); }
   };
 
   return (
     <div className="space-y-8">
-       <div className="flex justify-between items-center">
+       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <h2 className="text-3xl font-bold">Admin Dashboard</h2>
-        <button 
-          onClick={() => setShowAddExam(true)}
-          className="bg-[#FF9933] text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-[#FF9933]/20"
-        >
-          <PlusCircle size={20} /> Create New Exam
-        </button>
+        <div className="flex bg-gray-100 p-1 rounded-xl">
+           <button 
+            onClick={() => setActiveTab('exams')}
+            className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'exams' ? 'bg-white shadow-sm text-[#FF9933]' : 'text-gray-500'}`}
+          >
+            Manage Exams
+          </button>
+          <button 
+            onClick={() => setActiveTab('submissions')}
+            className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'submissions' ? 'bg-white shadow-sm text-[#FF9933]' : 'text-gray-500'}`}
+          >
+            Gradebook
+          </button>
+        </div>
       </div>
 
-      {showAddExam && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl">
-            <h3 className="text-2xl font-bold mb-6">Create New Exam</h3>
-            <form onSubmit={handleCreateExam} className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Exam Title</label>
-                <input required value={newExam.title} onChange={e => setNewExam({...newExam, title: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" placeholder="e.g. Bhagavad Gita Ch 1 Quiz" />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Book Title</label>
-                <input required value={newExam.bookTitle} onChange={e => setNewExam({...newExam, bookTitle: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" placeholder="e.g. Bhagavad Gita As It Is" />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Description</label>
-                <textarea value={newExam.description} onChange={e => setNewExam({...newExam, description: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" rows={3} placeholder="Brief summary of the exam goals..." />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Duration (Minutes)</label>
-                <input type="number" required value={newExam.durationMinutes} onChange={e => setNewExam({...newExam, durationMinutes: parseInt(e.target.value)})} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" />
-              </div>
-              <div className="flex gap-4 pt-4">
-                <button type="button" onClick={() => setShowAddExam(false)} className="flex-1 py-3 px-6 border-2 border-gray-100 rounded-xl font-bold hover:bg-gray-50 transition-colors">Cancel</button>
-                <button type="submit" className="flex-1 py-3 px-6 bg-[#FF9933] text-white rounded-xl font-bold shadow-lg shadow-[#FF9933]/20">Create Exam</button>
-              </div>
-            </form>
-          </motion.div>
+      {activeTab === 'exams' ? (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h3 className="text-xl font-bold text-gray-400 uppercase tracking-widest text-sm">Exam List</h3>
+            <button 
+              onClick={() => setShowAddExam(true)}
+              className="bg-[#2D2D2D] text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2"
+            >
+              <PlusCircle size={20} /> Create New Exam
+            </button>
+          </div>
+
+          {showAddExam && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl">
+                <h3 className="text-2xl font-bold mb-6">Create New Exam</h3>
+                <form onSubmit={handleCreateExam} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Exam Title</label>
+                    <input required value={newExam.title} onChange={e => setNewExam({...newExam, title: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" placeholder="e.g. Bhagavad Gita Ch 1 Quiz" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Book Title</label>
+                    <input required value={newExam.bookTitle} onChange={e => setNewExam({...newExam, bookTitle: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" placeholder="e.g. Bhagavad Gita As It Is" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Description</label>
+                    <textarea value={newExam.description} onChange={e => setNewExam({...newExam, description: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" rows={3} placeholder="Brief summary of the exam goals..." />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Duration (Minutes)</label>
+                    <input type="number" required value={newExam.durationMinutes} onChange={e => setNewExam({...newExam, durationMinutes: parseInt(e.target.value)})} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" />
+                  </div>
+                  <div className="flex gap-4 pt-4">
+                    <button type="button" onClick={() => setShowAddExam(false)} className="flex-1 py-3 px-6 border-2 border-gray-100 rounded-xl font-bold hover:bg-gray-50 transition-colors">Cancel</button>
+                    <button type="submit" className="flex-1 py-3 px-6 bg-[#FF9933] text-white rounded-xl font-bold shadow-lg shadow-[#FF9933]/20">Create Exam</button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+
+          <div className="grid gap-4">
+            {loading ? <div className="flex justify-center p-12"><Loader2 className="animate-spin text-[#FF9933]" /></div> : (
+              exams.map((exam) => (
+                <div key={exam.id}>
+                  <AdminExamItem exam={exam} onRefresh={loadData} />
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <h3 className="text-xl font-bold text-gray-400 font-bold uppercase tracking-widest text-sm">Devotee Progress</h3>
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 text-gray-500 text-xs font-bold uppercase tracking-wider">
+                <tr>
+                  <th className="px-6 py-4">Devotee</th>
+                  <th className="px-6 py-4">Exam</th>
+                  <th className="px-6 py-4 text-center">Score</th>
+                  <th className="px-6 py-4">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {allSubmissions.map((s) => {
+                  const student = users.find(u => u.uid === s.userId);
+                  return (
+                    <tr key={s.id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="font-bold">{student?.displayName || 'Unknown'}</div>
+                        <div className="text-[10px] text-gray-400">{student?.email}</div>
+                      </td>
+                      <td className="px-6 py-4">{s.examTitle}</td>
+                      <td className="px-6 py-4 text-center">
+                        <span className={`font-bold ${s.score/s.total >= 0.8 ? 'text-green-600' : 'text-[#FF9933]'}`}>
+                          {s.score}/{s.total}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-400">
+                        {s.completedAt?.toDate().toLocaleDateString()}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {allSubmissions.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-12 text-center text-gray-400 italic">No submissions yet</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
-
-      <div className="grid gap-4">
-        <h3 className="text-xl font-bold text-gray-400 uppercase tracking-widest text-sm">Active Exams</h3>
-        {loading ? <div className="flex justify-center p-12"><Loader2 className="animate-spin text-[#FF9933]" /></div> : (
-          exams.map((exam) => (
-             <div key={exam.id}>
-              <AdminExamItem exam={exam} onRefresh={fetchExams} />
-             </div>
-          ))
-        )}
-      </div>
-
-      <div className="pt-8">
-        <h3 className="text-xl font-bold mb-4">Devotee Results (Gradebook)</h3>
-        <AllSubmissionsView />
-      </div>
-    </div>
-  );
-}
-
-function AllSubmissionsView() {
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchAll = async () => {
-      try {
-        const snap = await getDocs(query(collection(db, 'submissions')));
-        setSubmissions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Submission)).sort((a,b) => b.completedAt?.seconds - a.completedAt?.seconds));
-      } catch (e) { console.error(e); }
-      finally { setLoading(false); }
-    };
-    fetchAll();
-  }, []);
-
-  if (loading) return <Loader2 className="animate-spin text-[#FF9933]" />;
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-      <table className="w-full text-left">
-        <thead className="bg-gray-50 text-gray-500 text-xs font-bold uppercase tracking-wider">
-          <tr>
-            <th className="px-6 py-4">Devotee</th>
-            <th className="px-6 py-4">Exam</th>
-            <th className="px-6 py-4 text-center">Score</th>
-            <th className="px-6 py-4">Date</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-50">
-          {submissions.map((s) => (
-            <tr key={s.id} className="hover:bg-gray-50/50 transition-colors">
-              <td className="px-6 py-4 font-medium">{s.userId.substring(0, 8)}...</td>
-              <td className="px-6 py-4">{s.examTitle}</td>
-              <td className="px-6 py-4 text-center">
-                <span className={`font-bold ${s.score/s.total >= 0.8 ? 'text-green-600' : 'text-[#FF9933]'}`}>
-                  {s.score}/{s.total}
-                </span>
-              </td>
-              <td className="px-6 py-4 text-sm text-gray-400">
-                {s.completedAt?.toDate().toLocaleDateString()}
-              </td>
-            </tr>
-          ))}
-          {submissions.length === 0 && (
-            <tr>
-              <td colSpan={4} className="px-6 py-12 text-center text-gray-400 italic">No submissions yet</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
     </div>
   );
 }

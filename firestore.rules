@@ -47,8 +47,8 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isSignedIn() && isOwner(userId) && 
-                      incoming().role == 'devotee' && // Default role
-                      incoming().keys().hasAll(['uid', 'email', 'role', 'createdAt']) &&
+                      incoming().role in ['devotee', 'admin'] &&
+                      incoming().keys().hasAll(['uid', 'email', 'displayName', 'role', 'createdAt']) &&
                       incoming().keys().size() == 5;
       allow update: if (isOwner(userId) || isAdmin()) && 
                       (
