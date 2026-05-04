@@ -4,27 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { 
-  onAuthStateChanged, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  signOut,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  updateProfile,
-  User as FirebaseUser
-} from 'firebase/auth';
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  collection, 
-  getDocs, 
-  query, 
-  where,
-  serverTimestamp 
-} from 'firebase/firestore';
-import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
+import { api, UserProfile, Exam, Submission, Question } from './lib/api';
 import { 
   BookOpen, 
   LayoutDashboard, 
@@ -41,111 +21,43 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-// --- Types ---
-
-interface UserProfile {
-  uid: string;
-  email: string;
-  displayName: string;
-  role: 'admin' | 'devotee';
-  createdAt: any;
-}
-
-interface Exam {
-  id: string;
-  title: string;
-  description: string;
-  bookTitle: string;
-  durationMinutes: number;
-  totalQuestions: number;
-  creatorId: string;
-  createdAt: any;
-}
-
-interface Question {
-  id: string;
-  type: 'mcq' | 'descriptive';
-  questionText: string;
-  options?: string[];
-  correctOptionIndex?: number;
-  idealAnswer?: string;
-  explanation: string;
-  order: number;
-}
-
-interface Submission {
-  id: string;
-  userId: string;
-  examId: string;
-  examTitle: string;
-  score: number;
-  total: number;
-  answers: (number | string)[];
-  results?: { correct: boolean; score: number }[];
-  completedAt: any;
-}
-
 // --- Components ---
 
 export default function App() {
-  const [user, setUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'home' | 'dashboard' | 'exam' | 'admin' | 'results'>('home');
   const [selectedExamId, setSelectedExamId] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
-        try {
-          const profileDoc = await getDoc(doc(db, 'users', u.uid));
-          if (profileDoc.exists()) {
-            const data = profileDoc.data() as UserProfile;
-            // Auto-promote to admin if email matches
-            if (u.email === 'bharathidharani52@gmail.com' && data.role !== 'admin') {
-              const updated = { ...data, role: 'admin' as const };
-              await setDoc(doc(db, 'users', u.uid), updated);
-              setProfile(updated);
-            } else {
-              setProfile(data);
-            }
-            setView('dashboard');
-          } else {
-            // Create profile for new user
-            const newProfile: UserProfile = {
-              uid: u.uid,
-              email: u.email || '',
-              displayName: u.displayName || 'Devotee',
-              role: u.email === 'bharathidharani52@gmail.com' ? 'admin' : 'devotee',
-              createdAt: serverTimestamp(),
-            };
-            await setDoc(doc(db, 'users', u.uid), newProfile);
-            setProfile(newProfile);
-            setView('dashboard');
-          }
-        } catch (error) {
-          handleFirestoreError(error, OperationType.GET, `users/${u.uid}`);
-        }
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      const u = JSON.parse(savedUser);
+      setProfile(u);
+      if (u.role === 'admin') {
+        setView('admin');
       } else {
-        setProfile(null);
-        setView('home');
+        setView('dashboard');
       }
-      setLoading(false);
-    });
-    return unsubscribe;
+    }
+    setLoading(false);
   }, []);
 
-  const login = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Login failed", error);
+  const handleLoginSuccess = (u: UserProfile) => {
+    localStorage.setItem('user', JSON.stringify(u));
+    setProfile(u);
+    if (u.role === 'admin') {
+      setView('admin');
+    } else {
+      setView('dashboard');
     }
   };
 
-  const logout = () => signOut(auth);
+  const logout = () => {
+    localStorage.removeItem('user');
+    setProfile(null);
+    setView('home');
+  };
 
   if (loading) {
     return (
@@ -182,6 +94,15 @@ export default function App() {
                     <span className="hidden md:inline font-medium">Manage Exams</span>
                   </button>
                 )}
+                {profile.role === 'devotee' && (
+                  <button 
+                    onClick={() => setView('dashboard')}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${view === 'dashboard' ? 'bg-[#FF9933] text-white' : 'hover:bg-[#FF9933]/10 text-[#FF9933]'}`}
+                  >
+                    <BookOpen size={20} />
+                    <span className="hidden md:inline font-medium">Take Exam</span>
+                  </button>
+                )}
                 <button 
                   onClick={() => setView('results')}
                   className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${view === 'results' ? 'bg-[#FF9933] text-white' : 'hover:bg-[#FF9933]/10 text-[#FF9933]'}`}
@@ -199,12 +120,7 @@ export default function App() {
                 </button>
               </>
             ) : (
-              <button 
-                onClick={login}
-                className="bg-[#FF9933] text-white px-6 py-2 rounded-xl font-semibold shadow-lg shadow-[#FF9933]/30 hover:translate-y-[-1px] active:translate-y-[0px] transition-all"
-              >
-                Sign In
-              </button>
+             <div />
             )}
           </div>
         </div>
@@ -214,7 +130,7 @@ export default function App() {
         <AnimatePresence mode="wait">
           {view === 'home' && (
             <motion.div key="home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <HomeView onLogin={login} />
+              <HomeView onLoginSuccess={handleLoginSuccess} />
             </motion.div>
           )}
           {view === 'dashboard' && (
@@ -250,28 +166,47 @@ export default function App() {
 
 // --- Views ---
 
-function HomeView({ onLogin }: { onLogin: () => void }) {
-  const [showAuthForm, setShowAuthForm] = useState(false);
-  const [isRegister, setIsRegister] = useState(false);
+function HomeView({ onLoginSuccess }: { onLoginSuccess: (u: UserProfile) => void }) {
+  const [name, setName] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [clickCount, setClickCount] = useState(0);
+
+  // Admin Login States
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
+  const [isRegister, setIsRegister] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
 
-  const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('asia-southeast1.run.app');
+  const handleSecretClick = () => {
+    setClickCount(prev => prev + 1);
+    if (clickCount + 1 >= 5) {
+      setShowAdminLogin(true);
+      setClickCount(0);
+    }
+  };
 
-  const handleEmailAuth = async (e: React.FormEvent) => {
+  const handleDevoteeStart = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setAuthLoading(true);
+    try {
+      const u = await api.login({ name, type: 'devotee' });
+      onLoginSuccess(u);
+    } catch (err: any) {
+      alert("Failed to start exam. Please try again.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleAdminAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
     setAuthLoading(true);
     try {
-      if (isRegister) {
-        const userCred = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(userCred.user, { displayName: name });
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-      }
+      const u = await api.login({ email, password, type: 'admin' });
+      onLoginSuccess(u);
     } catch (err: any) {
       setAuthError(err.message || "Authentication failed");
     } finally {
@@ -286,131 +221,77 @@ function HomeView({ onLogin }: { onLogin: () => void }) {
       exit={{ opacity: 0, y: -20 }}
       className="flex flex-col items-center text-center max-w-3xl mx-auto py-12"
     >
-      <div className="mb-8 p-4 bg-[#FF9933]/5 rounded-full">
+      <div 
+        className="mb-8 p-4 bg-[#FF9933]/5 rounded-full cursor-pointer active:scale-95 transition-transform"
+        onClick={handleSecretClick}
+      >
          <BookOpen size={64} className="text-[#FF9933]" />
       </div>
       <h1 className="text-4xl md:text-6xl font-bold mb-6 tracking-tight">
-        Deepen Your Knowledge of <br />
-        <span className="text-[#FF9933]">Srila Prabhupada's Books</span>
+        Srila Prabhupada <br />
+        <span className="text-[#FF9933]">Exam Portal</span>
       </h1>
       <p className="text-xl text-gray-600 mb-10 leading-relaxed">
-        Test your realization and understanding of the transcendental knowledge presented in HDG A.C. Bhaktivedanta Swami Prabhupada's books through structured exams.
+        Test your realization of the transcendental knowledge presented in Prabhupada's books.
       </p>
 
-      {!showAuthForm ? (
-        <div className="flex flex-col sm:flex-row gap-4">
-          <button 
-            onClick={() => setShowAuthForm(true)}
-            className="bg-[#FF9933] text-white px-8 py-4 rounded-2xl font-bold text-lg shadow-xl shadow-[#FF9933]/30 hover:scale-[1.02] transition-transform flex items-center gap-2"
-          >
-            Get Started <ChevronRight size={20} />
-          </button>
-          <button 
-            onClick={onLogin}
-            className="bg-white text-[#2D2D2D] border border-gray-200 px-8 py-4 rounded-2xl font-bold text-lg hover:bg-gray-50 transition-all flex items-center gap-2"
-          >
-            Google Sign In
-          </button>
+      {!showAdminLogin ? (
+        <div className="w-full max-w-md bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
+          <h2 className="text-2xl font-bold mb-6">Enter Your Name to Start</h2>
+          <form onSubmit={handleDevoteeStart} className="space-y-4">
+            <input 
+              required
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Your Full Name (Devotee Name)"
+              className="w-full p-4 rounded-2xl border-2 border-gray-100 focus:border-[#FF9933] outline-none text-center text-lg font-medium"
+            />
+            <button 
+              type="submit"
+              disabled={authLoading || !name.trim()}
+              className="w-full py-4 bg-[#FF9933] text-white rounded-2xl font-bold text-lg shadow-xl shadow-[#FF9933]/20 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
+            >
+              {authLoading ? <Loader2 className="animate-spin" /> : "Enter Exam Hall"}
+              {!authLoading && <ChevronRight size={22} />}
+            </button>
+          </form>
         </div>
       ) : (
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-sm bg-white p-8 rounded-3xl shadow-xl border border-gray-100 mt-4"
-        >
-          <h2 className="text-2xl font-bold mb-6">{isRegister ? 'Create Account' : 'Sign In'}</h2>
-          <form onSubmit={handleEmailAuth} className="space-y-4 text-left">
-            {isRegister && (
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Full Name</label>
-                <input 
-                  required 
-                  type="text" 
-                  value={name} 
-                  onChange={e => setName(e.target.value)}
-                  className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" 
-                  placeholder="Your Name"
-                />
-              </div>
-            )}
+        <div className="w-full max-w-md bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
+          <h2 className="text-2xl font-bold mb-6">{isRegister ? 'Register Admin' : 'Admin Sign In'}</h2>
+          <form onSubmit={handleAdminAuth} className="space-y-4 text-left">
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Email Address</label>
-              <input 
-                required 
-                type="email" 
-                value={email} 
-                onChange={e => setEmail(e.target.value)}
-                className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" 
-                placeholder="devotee@example.com"
-              />
+              <label className="block text-sm font-bold text-gray-700 mb-1">Email</label>
+              <input required type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" placeholder="admin@example.com" />
             </div>
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1">Password</label>
-              <input 
-                required 
-                type="password" 
-                value={password} 
-                onChange={e => setPassword(e.target.value)}
-                className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" 
-                placeholder="••••••••"
-              />
+              <input required type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" placeholder="••••••••" />
             </div>
             {authError && <p className="text-xs text-red-500 font-medium">{authError}</p>}
-            <button 
-              type="submit" 
-              disabled={authLoading}
-              className="w-full py-4 bg-[#FF9933] text-white rounded-xl font-bold shadow-lg shadow-[#FF9933]/20 flex items-center justify-center gap-2"
-            >
-              {authLoading ? <Loader2 className="animate-spin" size={20} /> : (isRegister ? 'Register' : 'Sign In')}
+            <button type="submit" disabled={authLoading} className="w-full py-4 bg-[#2D2D2D] text-white rounded-xl font-bold shadow-lg flex items-center justify-center">
+              {authLoading ? <Loader2 className="animate-spin" size={20} /> : (isRegister ? "Register Admin Account" : "Sign In as Admin")}
             </button>
-            <div className="flex flex-col gap-2 pt-4">
-              <button 
-                type="button" 
-                onClick={() => setIsRegister(!isRegister)}
-                className="text-sm font-medium text-[#FF9933] hover:underline"
-              >
-                {isRegister ? 'Already have an account? Sign In' : "Don't have an account? Register"}
+            <div className="flex flex-col gap-2 mt-4 text-center">
+              <button type="button" onClick={() => setIsRegister(!isRegister)} className="text-sm text-[#FF9933] font-bold hover:underline">
+                {isRegister ? "Already have an account? Sign In" : "First time? Register here"}
               </button>
-              <button 
-                type="button" 
-                onClick={onLogin}
-                className="text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                Or continue with Google
-              </button>
-              <button 
-                type="button" 
-                onClick={() => setShowAuthForm(false)}
-                className="text-sm font-medium text-gray-400"
-              >
-                Back
-              </button>
-              {isDev && (
-                <button 
-                  type="button"
-                  onClick={() => { setEmail('bharathidharani52@gmail.com'); setPassword('devotee123'); setIsRegister(false); }}
-                  className="text-[10px] text-gray-300 mt-4 hover:text-gray-400"
-                >
-                  Dev Hint: use admin creds
-                </button>
-              )}
+              <button type="button" onClick={() => setShowAdminLogin(false)} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Back to Devotee Entry</button>
             </div>
           </form>
-        </motion.div>
+        </div>
       )}
 
-      <p className="mt-8 text-sm text-gray-400">First-time users will be automatically registered as devotees.</p>
-
-      <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
+      <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8 text-left opacity-60">
         {[
-          { title: 'Structured Exams', desc: 'Carefully curated questions focused on key philosophical points.', icon: LayoutDashboard },
-          { title: 'Instant Results', desc: 'Get immediate feedback on your performance and clear explanations.', icon: Award },
-          { title: 'Progress Tracking', desc: 'Keep a record of your exams and monitor your spiritual growth.', icon: Clock },
+          { title: 'Authorized Knowledge', desc: 'Questions strictly based on Srila Prabhupada\'s original teachings.', icon: BookOpen },
+          { title: 'Digital Certificates', desc: 'Receive a token of appreciation upon successful completion.', icon: Award },
+          { title: 'Simple Access', desc: 'No complex registration required for devotees to begin.', icon: CheckCircle2 },
         ].map((feat, i) => (
-          <div key={i} className="p-6 bg-white rounded-2xl shadow-sm border border-gray-100">
-            <feat.icon className="text-[#FF9933] mb-4" size={32} />
-            <h3 className="font-bold text-lg mb-2">{feat.title}</h3>
-            <p className="text-gray-500">{feat.desc}</p>
+          <div key={i} className="p-6 bg-white rounded-2xl border border-gray-100">
+            <feat.icon className="text-[#FF9933] mb-4" size={24} />
+            <h3 className="font-bold text-base mb-1">{feat.title}</h3>
+            <p className="text-xs text-gray-500">{feat.desc}</p>
           </div>
         ))}
       </div>
@@ -425,12 +306,10 @@ function DashboardView({ onSelectExam }: { onSelectExam: (id: string) => void })
   useEffect(() => {
     const fetchExams = async () => {
       try {
-        const q = query(collection(db, 'exams'));
-        const querySnapshot = await getDocs(q);
-        const examList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Exam));
+        const examList = await api.getExams();
         setExams(examList);
       } catch (error) {
-        handleFirestoreError(error, OperationType.GET, 'exams');
+        console.error("Exam fetch failed", error);
       } finally {
         setLoading(false);
       }
@@ -517,16 +396,15 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
   useEffect(() => {
     const loadContent = async () => {
       try {
-        const examDoc = await getDoc(doc(db, 'exams', examId));
-        if (examDoc.exists()) {
-          setExam({ id: examDoc.id, ...examDoc.data() } as Exam);
-          const qSnap = await getDocs(query(collection(db, `exams/${examId}/questions`)));
-          const qList = qSnap.docs.map(d => ({ id: d.id, ...d.data() } as Question)).sort((a, b) => a.order - b.order);
-          setQuestions(qList);
+        const examData = await api.getExam(examId);
+        if (examData) {
+          setExam(examData);
+          const qList = await api.getQuestions(examId);
+          setQuestions(qList.sort((a, b) => a.order - b.order));
           setAnswers(new Array(qList.length).fill(-1));
         }
       } catch (error) {
-        handleFirestoreError(error, OperationType.GET, `exams/${examId}`);
+        console.error("Content load failed", error);
       } finally {
         setLoading(false);
       }
@@ -573,7 +451,7 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
       const gradedResults = await Promise.all(gradingPromises);
       const totalScore = gradedResults.reduce((acc, curr) => acc + curr.score, 0);
       
-      const submission: Omit<Submission, 'id'> = {
+      const submission: Omit<Submission, 'id' | 'completedAt'> = {
         userId,
         examId,
         examTitle: exam?.title || 'Unknown Exam',
@@ -581,14 +459,13 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
         total: questions.length,
         answers,
         results: gradedResults.map(r => ({ correct: r.correct, score: r.score })),
-        completedAt: serverTimestamp(),
       };
 
-      await setDoc(doc(collection(db, 'submissions')), submission);
+      await api.createSubmission(submission);
       setIsGrading(false);
       onComplete();
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'submissions');
+      console.error("Submission failed", error);
       setIsGrading(false);
     } finally {
       setIsSubmitting(false);
@@ -733,16 +610,15 @@ function ResultsView({ userId }: { userId: string }) {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewingDetailId, setViewingDetailId] = useState<string | null>(null);
+  const [showCertificateFor, setShowCertificateFor] = useState<Submission | null>(null);
 
   useEffect(() => {
     const fetchSubmissions = async () => {
       try {
-        const q = query(collection(db, 'submissions'), where('userId', '==', userId));
-        const snap = await getDocs(q);
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Submission));
-        setSubmissions(list.sort((a,b) => (b.completedAt?.seconds || 0) - (a.completedAt?.seconds || 0)));
+        const list = await api.getSubmissions(userId);
+        setSubmissions(list.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()));
       } catch (error) {
-        handleFirestoreError(error, OperationType.GET, 'submissions');
+        console.error("Fetch submissions failed", error);
       } finally {
         setLoading(false);
       }
@@ -754,7 +630,39 @@ function ResultsView({ userId }: { userId: string }) {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <h2 className="text-3xl font-bold mb-8">Exam History</h2>
+      <div className="flex justify-between items-center mb-8">
+        <h2 className="text-3xl font-bold">Exam History</h2>
+        {submissions.some(s => s.isCertified) && (
+          <span className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full font-bold">Check below for signed certificates!</span>
+        )}
+      </div>
+
+      {showCertificateFor && (
+        <motion.div 
+          initial={{ opacity: 0 }} 
+          animate={{ opacity: 1 }} 
+          className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
+        >
+          <div className="relative w-full max-w-3xl">
+            <button 
+              onClick={() => setShowCertificateFor(null)}
+              className="absolute -top-12 right-0 text-white flex items-center gap-2 font-bold hover:text-[#FF9933] transition-colors"
+            >
+              <XCircle size={24} /> Close
+            </button>
+            <CertificateView submission={showCertificateFor} />
+            <div className="mt-6 flex justify-center no-print">
+               <button 
+                onClick={() => window.print()} 
+                className="bg-[#FF9933] text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg"
+               >
+                 Print Certificate
+               </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {submissions.length === 0 ? (
         <div className="text-center p-20 bg-white rounded-3xl border border-gray-100">
           <Award size={48} className="mx-auto text-gray-200 mb-4" />
@@ -765,6 +673,8 @@ function ResultsView({ userId }: { userId: string }) {
           {submissions.map((s) => {
             const percentage = Math.round((s.score / s.total) * 100);
             const isExpanded = viewingDetailId === s.id;
+            const passed = percentage >= 80;
+            const certified = s.isCertified;
 
             return (
               <div key={s.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -772,22 +682,41 @@ function ResultsView({ userId }: { userId: string }) {
                   className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 cursor-pointer hover:bg-gray-50 transition-colors"
                   onClick={() => setViewingDetailId(isExpanded ? null : s.id)}
                 >
-                  <div>
+                  <div className="flex-1">
                     <h3 className="text-xl font-bold mb-1">{s.examTitle}</h3>
                     <div className="flex items-center gap-3 text-sm text-gray-500">
                       <span className="flex items-center gap-1">
                         <Clock size={16} />
-                        {s.completedAt?.toDate().toLocaleDateString()}
+                        {new Date(s.completedAt).toLocaleDateString()} ({percentage}%)
                       </span>
                       <span className="flex items-center gap-1">
                         <LayoutDashboard size={16} />
                         {s.total} Questions
                       </span>
+                      {certified && (
+                        <span className="flex items-center gap-1 text-green-600 font-bold">
+                          <CheckCircle2 size={16} />
+                          Signed by Admin
+                        </span>
+                      )}
                     </div>
                   </div>
                   
                   <div className="flex items-center gap-8">
-                    <div className="text-center">
+                    {certified && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setShowCertificateFor(s); }}
+                        className="bg-white border-2 border-green-500 text-green-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-green-500 hover:text-white transition-all flex items-center gap-2"
+                      >
+                        <Award size={16} /> View Certificate
+                      </button>
+                    )}
+                    {passed && !certified && (
+                      <div className="text-[10px] text-blue-500 font-bold uppercase tracking-wider bg-blue-50 px-3 py-1 rounded-lg">
+                        Awaiting Signature
+                      </div>
+                    )}
+                    <div className="text-center min-w-[60px]">
                       <div className="text-2xl font-bold text-[#FF9933]">{s.score}/{s.total}</div>
                       <div className="text-xs text-gray-400 font-bold uppercase tracking-wider">Score</div>
                     </div>
@@ -826,8 +755,9 @@ function ResultsView({ userId }: { userId: string }) {
                         <h4 className="font-bold text-sm text-gray-400 uppercase tracking-widest mb-2">Answers Provided</h4>
                         <div className="space-y-2">
                            {s.answers.map((ans, idx) => (
-                             <div key={idx} className="text-sm p-2 bg-gray-50 rounded-lg text-gray-600 truncate">
-                               Q{idx+1}: {typeof ans === 'number' ? `Option ${String.fromCharCode(65 + ans)}` : ans}
+                             <div key={idx} className="text-sm p-2 bg-gray-50 rounded-lg text-gray-600">
+                               <span className="font-bold mr-2 text-gray-400">Q{idx+1}:</span> 
+                               {typeof ans === 'number' ? `Option ${String.fromCharCode(65 + ans)}` : ans}
                              </div>
                            ))}
                         </div>
@@ -841,6 +771,84 @@ function ResultsView({ userId }: { userId: string }) {
         </div>
       )}
     </motion.div>
+  );
+}
+
+function CertificateView({ submission }: { submission: Submission }) {
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
+  useEffect(() => {
+    api.getUsers().then(users => {
+      const u = users.find(user => user.uid === submission.userId);
+      if (u) setUserProfile(u);
+    });
+  }, [submission.userId]);
+
+  return (
+    <div className="bg-white aspect-[1.414/1] w-full p-12 border-[12px] border-double border-[#FF9933] shadow-inner relative overflow-hidden flex flex-col items-center justify-center text-center certificate-content">
+      {/* Decorative Ornaments */}
+      <div className="absolute top-0 left-0 w-32 h-32 border-l-8 border-t-8 border-[#FF9933]/20" />
+      <div className="absolute top-0 right-0 w-32 h-32 border-r-8 border-t-8 border-[#FF9933]/20" />
+      <div className="absolute bottom-0 left-0 w-32 h-32 border-l-8 border-b-8 border-[#FF9933]/20" />
+      <div className="absolute bottom-0 right-0 w-32 h-32 border-r-8 border-b-8 border-[#FF9933]/20" />
+      
+      <div className="mb-6">
+        <Award size={64} className="text-[#FF9933] mx-auto opacity-80" />
+      </div>
+      
+      <h1 className="text-3xl font-serif font-black tracking-[0.2em] text-[#FF9933] uppercase mb-2">Certificate of Completion</h1>
+      <p className="text-gray-400 italic mb-10">This certifies that the devotee</p>
+      
+      <h2 className="text-5xl font-serif font-bold text-[#2D2D2D] border-b-2 border-[#FF9933]/30 px-12 py-2 mb-10 min-w-[300px]">
+        {userProfile?.displayName || 'Loading...'}
+      </h2>
+      
+      <p className="text-lg text-gray-600 max-w-lg mb-12">
+        has successfully completed the realization exam on <br />
+        <span className="font-bold text-[#2D2D2D]">"{submission.examTitle}"</span> <br />
+        demonstrating deep understanding of the instructions given by <br />
+        <span className="font-bold text-[#FF9933]">His Divine Grace A.C. Bhaktivedanta Swami Prabhupada</span>
+      </p>
+      
+      <div className="grid grid-cols-2 w-full max-w-xl items-end mt-4">
+        <div className="flex flex-col items-center">
+          <div className="w-40 border-b border-gray-300 mb-2 font-handwriting text-2xl text-gray-400">
+             {new Date(submission.completedAt).toLocaleDateString()}
+          </div>
+          <span className="text-[10px] uppercase font-bold tracking-widest text-gray-400">Date</span>
+        </div>
+        
+        <div className="flex flex-col items-center">
+          <div className="w-40 border-b border-gray-300 mb-2 italic text-[#FF9933] font-serif text-xl">
+             Bhaktivedanta Admin
+          </div>
+          <span className="text-[10px] uppercase font-bold tracking-widest text-[#FF9933]">Validated & Signed</span>
+        </div>
+      </div>
+
+      <div className="absolute bottom-6 text-[8px] text-gray-300 font-mono">
+        Verification ID: {submission.id.toUpperCase()}
+      </div>
+      
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body * { visibility: hidden; background: white !important; }
+          .certificate-content, .certificate-content * { visibility: visible !important; }
+          .certificate-content { 
+            position: absolute; 
+            left: 0; 
+            top: 0; 
+            width: 100% !important; 
+            height: 100vh !important; 
+            margin: 0 !important;
+            padding: 40px !important;
+            border-width: 20px !important;
+            box-shadow: none !important;
+          }
+          .no-print { display: none !important; }
+        }
+      `}} />
+    </div>
   );
 }
 
@@ -859,15 +867,15 @@ function AdminPanel() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const examSnap = await getDocs(query(collection(db, 'exams')));
-      setExams(examSnap.docs.map(d => ({ id: d.id, ...d.data() } as Exam)));
+      const examList = await api.getExams();
+      setExams(examList);
       
-      const subSnap = await getDocs(query(collection(db, 'submissions')));
-      setAllSubmissions(subSnap.docs.map(d => ({ id: d.id, ...d.data() } as Submission)).sort((a,b) => (b.completedAt?.seconds || 0) - (a.completedAt?.seconds || 0)));
+      const subList = await api.getSubmissions();
+      setAllSubmissions(subList.sort((a,b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()));
 
-      const userSnap = await getDocs(query(collection(db, 'users')));
-      setUsers(userSnap.docs.map(d => ({ id: d.id, ...d.data() } as any as UserProfile)));
-    } catch (err) { handleFirestoreError(err, OperationType.GET, 'admin-data'); }
+      const userList = await api.getUsers();
+      setUsers(userList);
+    } catch (err) { console.error("Load admin data failed", err); }
     setLoading(false);
   };
 
@@ -876,18 +884,19 @@ function AdminPanel() {
   const handleCreateExam = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const examData = {
-        ...newExam,
-        creatorId: auth.currentUser?.uid,
+      const examData: Omit<Exam, 'id' | 'createdAt'> = {
+        title: newExam.title || '',
+        bookTitle: newExam.bookTitle || '',
+        description: newExam.description || '',
+        durationMinutes: newExam.durationMinutes || 30,
+        creatorId: 'admin',
         totalQuestions: 0,
-        createdAt: serverTimestamp(),
       };
-      const examRef = doc(collection(db, 'exams'));
-      await setDoc(examRef, examData);
+      await api.createExam(examData);
       setShowAddExam(false);
       setNewExam({ title: '', description: '', bookTitle: '', durationMinutes: 30 });
       loadData();
-    } catch (err) { handleFirestoreError(err, OperationType.WRITE, 'exams'); }
+    } catch (err) { console.error("Create exam failed", err); }
   };
 
   return (
@@ -972,26 +981,49 @@ function AdminPanel() {
                   <th className="px-6 py-4">Devotee</th>
                   <th className="px-6 py-4">Exam</th>
                   <th className="px-6 py-4 text-center">Score</th>
+                  <th className="px-6 py-4 text-center">Signature</th>
                   <th className="px-6 py-4">Date</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {allSubmissions.map((s) => {
                   const student = users.find(u => u.uid === s.userId);
+                  const canCertify = (s.score / s.total) >= 0.8;
                   return (
-                    <tr key={s.id} className="hover:bg-gray-50/50 transition-colors">
+                    <tr key={s.id} className="hover:bg-gray-50/50 transition-colors text-sm">
                       <td className="px-6 py-4">
                         <div className="font-bold">{student?.displayName || 'Unknown'}</div>
-                        <div className="text-[10px] text-gray-400">{student?.email}</div>
+                        <div className="text-[10px] text-gray-400">{student?.email || 'Anonymous'}</div>
                       </td>
                       <td className="px-6 py-4">{s.examTitle}</td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`font-bold ${s.score/s.total >= 0.8 ? 'text-green-600' : 'text-[#FF9933]'}`}>
+                        <span className={`font-bold ${canCertify ? 'text-green-600' : 'text-[#FF9933]'}`}>
                           {s.score}/{s.total}
                         </span>
                       </td>
+                      <td className="px-6 py-4 text-center">
+                        {s.isCertified ? (
+                          <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1">
+                            <CheckCircle2 size={12} /> Certified
+                          </span>
+                        ) : canCertify ? (
+                          <button 
+                            onClick={async () => {
+                              try {
+                                await api.certifySubmission(s.id);
+                                loadData();
+                              } catch (e) { console.error("Sign failed", e); }
+                            }}
+                            className="text-[10px] bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold hover:bg-blue-600 hover:text-white transition-all uppercase tracking-wider"
+                          >
+                            Sign Certificate
+                          </button>
+                        ) : (
+                          <span className="text-gray-300 text-[10px] uppercase tracking-wider">Ineligible</span>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-sm text-gray-400">
-                        {s.completedAt?.toDate().toLocaleDateString()}
+                        {new Date(s.completedAt).toLocaleDateString()}
                       </td>
                     </tr>
                   );
@@ -1019,8 +1051,10 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
   });
 
   const loadQuestions = async () => {
-    const qSnap = await getDocs(query(collection(db, `exams/${exam.id}/questions`)));
-    setQuestions(qSnap.docs.map(d => ({ id: d.id, ...d.data() } as Question)).sort((a,b) => a.order - b.order));
+    try {
+      const qList = await api.getQuestions(exam.id);
+      setQuestions(qList);
+    } catch (e) { console.error("Load questions failed", e); }
   };
 
   useEffect(() => { if (expanded) loadQuestions(); }, [expanded]);
@@ -1028,15 +1062,21 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
   const handleAddQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const qRef = doc(collection(db, `exams/${exam.id}/questions`));
-      await setDoc(qRef, { ...newQ, order: questions.length });
-      // Update exam total questions count
-      await setDoc(doc(db, 'exams', exam.id), { totalQuestions: questions.length + 1 }, { merge: true });
+      const qData: Omit<Question, 'id'> = {
+        type: newQ.type || 'mcq',
+        questionText: newQ.questionText || '',
+        options: newQ.options,
+        correctOptionIndex: newQ.correctOptionIndex,
+        explanation: newQ.explanation || '',
+        idealAnswer: newQ.idealAnswer || '',
+        order: questions.length
+      };
+      await api.createQuestion(exam.id, qData);
       setShowAddQ(false);
       setNewQ({ type: 'mcq', questionText: '', options: ['', '', '', ''], correctOptionIndex: 0, explanation: '', idealAnswer: '' });
       loadQuestions();
       onRefresh();
-    } catch (err) { handleFirestoreError(err, OperationType.WRITE, 'questions'); }
+    } catch (err) { console.error("Add question failed", err); }
   };
 
   return (
