@@ -9,6 +9,9 @@ import {
   signInWithPopup, 
   GoogleAuthProvider, 
   signOut,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
   User as FirebaseUser
 } from 'firebase/auth';
 import { 
@@ -248,6 +251,34 @@ export default function App() {
 // --- Views ---
 
 function HomeView({ onLogin }: { onLogin: () => void }) {
+  const [showAuthForm, setShowAuthForm] = useState(false);
+  const [isRegister, setIsRegister] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  const isDev = window.location.hostname === 'localhost' || window.location.hostname.includes('asia-southeast1.run.app');
+
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthLoading(true);
+    try {
+      if (isRegister) {
+        const userCred = await createUserWithEmailAndPassword(auth, email, password);
+        await updateProfile(userCred.user, { displayName: name });
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+    } catch (err: any) {
+      setAuthError(err.message || "Authentication failed");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 20 }}
@@ -265,15 +296,110 @@ function HomeView({ onLogin }: { onLogin: () => void }) {
       <p className="text-xl text-gray-600 mb-10 leading-relaxed">
         Test your realization and understanding of the transcendental knowledge presented in HDG A.C. Bhaktivedanta Swami Prabhupada's books through structured exams.
       </p>
-      <div className="flex flex-col sm:flex-row gap-4">
-        <button 
-          onClick={onLogin}
-          className="bg-[#FF9933] text-white px-8 py-4 rounded-2xl font-bold text-lg shadow-xl shadow-[#FF9933]/30 hover:scale-[1.02] transition-transform flex items-center gap-2"
+
+      {!showAuthForm ? (
+        <div className="flex flex-col sm:flex-row gap-4">
+          <button 
+            onClick={() => setShowAuthForm(true)}
+            className="bg-[#FF9933] text-white px-8 py-4 rounded-2xl font-bold text-lg shadow-xl shadow-[#FF9933]/30 hover:scale-[1.02] transition-transform flex items-center gap-2"
+          >
+            Get Started <ChevronRight size={20} />
+          </button>
+          <button 
+            onClick={onLogin}
+            className="bg-white text-[#2D2D2D] border border-gray-200 px-8 py-4 rounded-2xl font-bold text-lg hover:bg-gray-50 transition-all flex items-center gap-2"
+          >
+            Google Sign In
+          </button>
+        </div>
+      ) : (
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-sm bg-white p-8 rounded-3xl shadow-xl border border-gray-100 mt-4"
         >
-          Sign In / Register <ChevronRight size={20} />
-        </button>
-      </div>
-      <p className="mt-4 text-sm text-gray-400">First-time users will be automatically registered as devotees.</p>
+          <h2 className="text-2xl font-bold mb-6">{isRegister ? 'Create Account' : 'Sign In'}</h2>
+          <form onSubmit={handleEmailAuth} className="space-y-4 text-left">
+            {isRegister && (
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Full Name</label>
+                <input 
+                  required 
+                  type="text" 
+                  value={name} 
+                  onChange={e => setName(e.target.value)}
+                  className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" 
+                  placeholder="Your Name"
+                />
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">Email Address</label>
+              <input 
+                required 
+                type="email" 
+                value={email} 
+                onChange={e => setEmail(e.target.value)}
+                className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" 
+                placeholder="devotee@example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">Password</label>
+              <input 
+                required 
+                type="password" 
+                value={password} 
+                onChange={e => setPassword(e.target.value)}
+                className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" 
+                placeholder="••••••••"
+              />
+            </div>
+            {authError && <p className="text-xs text-red-500 font-medium">{authError}</p>}
+            <button 
+              type="submit" 
+              disabled={authLoading}
+              className="w-full py-4 bg-[#FF9933] text-white rounded-xl font-bold shadow-lg shadow-[#FF9933]/20 flex items-center justify-center gap-2"
+            >
+              {authLoading ? <Loader2 className="animate-spin" size={20} /> : (isRegister ? 'Register' : 'Sign In')}
+            </button>
+            <div className="flex flex-col gap-2 pt-4">
+              <button 
+                type="button" 
+                onClick={() => setIsRegister(!isRegister)}
+                className="text-sm font-medium text-[#FF9933] hover:underline"
+              >
+                {isRegister ? 'Already have an account? Sign In' : "Don't have an account? Register"}
+              </button>
+              <button 
+                type="button" 
+                onClick={onLogin}
+                className="text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                Or continue with Google
+              </button>
+              <button 
+                type="button" 
+                onClick={() => setShowAuthForm(false)}
+                className="text-sm font-medium text-gray-400"
+              >
+                Back
+              </button>
+              {isDev && (
+                <button 
+                  type="button"
+                  onClick={() => { setEmail('bharathidharani52@gmail.com'); setPassword('devotee123'); setIsRegister(false); }}
+                  className="text-[10px] text-gray-300 mt-4 hover:text-gray-400"
+                >
+                  Dev Hint: use admin creds
+                </button>
+              )}
+            </div>
+          </form>
+        </motion.div>
+      )}
+
+      <p className="mt-8 text-sm text-gray-400">First-time users will be automatically registered as devotees.</p>
 
       <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
         {[
@@ -483,11 +609,11 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
     Return ONLY a numerical score between 0.0 and 1.0, where 1.0 is perfectly correct and matches the essence of the ideal answer, and 0.0 is completely wrong. No other text.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
+      model: "gemini-2.0-flash-exp",
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
     });
     
-    const text = response.text || "0";
+    const text = response.candidates?.[0]?.content?.parts?.[0]?.text || "0";
     return parseFloat(text.trim()) || 0;
   }
 
@@ -610,6 +736,7 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
 function ResultsView({ userId }: { userId: string }) {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewingDetailId, setViewingDetailId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchSubmissions = async () => {
@@ -617,7 +744,7 @@ function ResultsView({ userId }: { userId: string }) {
         const q = query(collection(db, 'submissions'), where('userId', '==', userId));
         const snap = await getDocs(q);
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Submission));
-        setSubmissions(list.sort((a,b) => b.completedAt?.seconds - a.completedAt?.seconds));
+        setSubmissions(list.sort((a,b) => (b.completedAt?.seconds || 0) - (a.completedAt?.seconds || 0)));
       } catch (error) {
         handleFirestoreError(error, OperationType.GET, 'submissions');
       } finally {
@@ -641,32 +768,77 @@ function ResultsView({ userId }: { userId: string }) {
         <div className="grid gap-4">
           {submissions.map((s) => {
             const percentage = Math.round((s.score / s.total) * 100);
+            const isExpanded = viewingDetailId === s.id;
+
             return (
-              <div key={s.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div>
-                  <h3 className="text-xl font-bold mb-1">{s.examTitle}</h3>
-                  <div className="flex items-center gap-3 text-sm text-gray-500">
-                    <span className="flex items-center gap-1">
-                      <Clock size={16} />
-                      {s.completedAt?.toDate().toLocaleDateString()}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <LayoutDashboard size={16} />
-                      {s.total} Questions
-                    </span>
+              <div key={s.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div 
+                  className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 cursor-pointer hover:bg-gray-50 transition-colors"
+                  onClick={() => setViewingDetailId(isExpanded ? null : s.id)}
+                >
+                  <div>
+                    <h3 className="text-xl font-bold mb-1">{s.examTitle}</h3>
+                    <div className="flex items-center gap-3 text-sm text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <Clock size={16} />
+                        {s.completedAt?.toDate().toLocaleDateString()}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <LayoutDashboard size={16} />
+                        {s.total} Questions
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-8">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-[#FF9933]">{s.score}/{s.total}</div>
+                      <div className="text-xs text-gray-400 font-bold uppercase tracking-wider">Score</div>
+                    </div>
+                    <div className={`w-16 h-16 rounded-full border-4 flex items-center justify-center font-bold text-lg
+                      ${percentage >= 80 ? 'border-green-500 text-green-600' : percentage >= 50 ? 'border-yellow-500 text-yellow-600' : 'border-red-500 text-red-600'}`}>
+                      {percentage}%
+                    </div>
                   </div>
                 </div>
-                
-                <div className="flex items-center gap-8">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-[#FF9933]">{s.score}/{s.total}</div>
-                    <div className="text-xs text-gray-400 font-bold uppercase tracking-wider">Score</div>
-                  </div>
-                  <div className={`w-16 h-16 rounded-full border-4 flex items-center justify-center font-bold text-lg
-                    ${percentage >= 80 ? 'border-green-500 text-green-600' : percentage >= 50 ? 'border-yellow-500 text-yellow-600' : 'border-red-500 text-red-600'}`}>
-                    {percentage}%
-                  </div>
-                </div>
+
+                <AnimatePresence>
+                  {isExpanded && s.results && (
+                    <motion.div 
+                      initial={{ height: 0 }}
+                      animate={{ height: 'auto' }}
+                      exit={{ height: 0 }}
+                      className="border-t border-gray-50 bg-[#FFFDF7]/30 p-6 overflow-hidden"
+                    >
+                      <h4 className="font-bold text-sm text-gray-400 uppercase tracking-widest mb-4">Detailed Breakdown</h4>
+                      <div className="grid gap-3">
+                        {s.results.map((res, idx) => (
+                          <div key={idx} className="flex items-center justify-between bg-white p-3 rounded-xl border border-gray-100">
+                            <span className="text-sm font-medium">Question {idx + 1}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-gray-400">Score: {res.score}</span>
+                              {res.correct ? (
+                                <CheckCircle2 className="text-green-500" size={18} />
+                              ) : (
+                                <XCircle className="text-red-400" size={18} />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-6">
+                        <h4 className="font-bold text-sm text-gray-400 uppercase tracking-widest mb-2">Answers Provided</h4>
+                        <div className="space-y-2">
+                           {s.answers.map((ans, idx) => (
+                             <div key={idx} className="text-sm p-2 bg-gray-50 rounded-lg text-gray-600 truncate">
+                               Q{idx+1}: {typeof ans === 'number' ? `Option ${String.fromCharCode(65 + ans)}` : ans}
+                             </div>
+                           ))}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             );
           })}
