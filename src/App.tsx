@@ -61,9 +61,11 @@ interface Exam {
 
 interface Question {
   id: string;
+  type: 'mcq' | 'descriptive';
   questionText: string;
-  options: string[];
-  correctOptionIndex: number;
+  options?: string[];
+  correctOptionIndex?: number;
+  idealAnswer?: string;
   explanation: string;
   order: number;
 }
@@ -75,7 +77,8 @@ interface Submission {
   examTitle: string;
   score: number;
   total: number;
-  answers: number[];
+  answers: (number | string)[];
+  results?: { correct: boolean; score: number }[];
   completedAt: any;
 }
 
@@ -267,9 +270,10 @@ function HomeView({ onLogin }: { onLogin: () => void }) {
           onClick={onLogin}
           className="bg-[#FF9933] text-white px-8 py-4 rounded-2xl font-bold text-lg shadow-xl shadow-[#FF9933]/30 hover:scale-[1.02] transition-transform flex items-center gap-2"
         >
-          Start Your Journey <ChevronRight size={20} />
+          Sign In / Register <ChevronRight size={20} />
         </button>
       </div>
+      <p className="mt-4 text-sm text-gray-400">First-time users will be automatically registered as devotees.</p>
 
       <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
         {[
@@ -378,7 +382,7 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
   const [exam, setExam] = useState<Exam | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState<number[]>([]);
+  const [answers, setAnswers] = useState<(number | string)[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
@@ -403,10 +407,10 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
     loadContent();
   }, [examId]);
 
-  const handleAnswer = (optionIndex: number) => {
+  const handleAnswer = (val: number | string) => {
     if (showExplanation) return;
     const newAnswers = [...answers];
-    newAnswers[currentIndex] = optionIndex;
+    newAnswers[currentIndex] = val;
     setAnswers(newAnswers);
   };
 
@@ -423,17 +427,38 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
     setIsSubmitting(true);
     try {
       let score = 0;
-      questions.forEach((q, i) => {
-        if (answers[i] === q.correctOptionIndex) score++;
-      });
+      const results: { correct: boolean; score: number }[] = [];
+
+      // Process MCQ scores immediately
+      for (let i = 0; i < questions.length; i++) {
+        const q = questions[i];
+        const ans = answers[i];
+
+        if (q.type === 'mcq') {
+          const isCorrect = ans === q.correctOptionIndex;
+          if (isCorrect) score++;
+          results.push({ correct: isCorrect, score: isCorrect ? 1 : 0 });
+        } else {
+          // Descriptive - Use AI to grade
+          try {
+            const aiScoreResult = await gradeDescriptiveAnswer(q.questionText, q.idealAnswer || '', ans as string);
+            score += aiScoreResult;
+            results.push({ correct: aiScoreResult >= 0.7, score: aiScoreResult });
+          } catch (e) {
+            console.error("AI Grading failed", e);
+            results.push({ correct: false, score: 0 }); // Fallback
+          }
+        }
+      }
 
       const submission: Omit<Submission, 'id'> = {
         userId,
         examId,
         examTitle: exam?.title || 'Unknown Exam',
-        score,
+        score: Math.round(score * 10) / 10,
         total: questions.length,
         answers,
+        results,
         completedAt: serverTimestamp(),
       };
 
@@ -445,6 +470,26 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
       setIsSubmitting(false);
     }
   };
+
+  async function gradeDescriptiveAnswer(question: string, ideal: string, devoteeAnswer: string): Promise<number> {
+    const { GoogleGenAI } = await import('@google/genai');
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY as string });
+    
+    const prompt = `Grade the following response to a quiz question about Srila Prabhupada's books.
+    Question: ${question}
+    Ideal Answer: ${ideal}
+    Devotee Answer: ${devoteeAnswer}
+    
+    Return ONLY a numerical score between 0.0 and 1.0, where 1.0 is perfectly correct and matches the essence of the ideal answer, and 0.0 is completely wrong. No other text.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+    });
+    
+    const text = response.text || "0";
+    return parseFloat(text.trim()) || 0;
+  }
 
   if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-[#FF9933]" /></div>;
   if (!exam || questions.length === 0) return <div>Exam not found or has no questions.</div>;
@@ -485,26 +530,35 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
           <h3 className="text-2xl font-bold mb-8 leading-tight">{currentQuestion.questionText}</h3>
           
           <div className="space-y-4 mb-10">
-            {currentQuestion.options.map((option, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleAnswer(idx)}
-                disabled={showExplanation}
-                className={`w-full text-left p-5 rounded-2xl border-2 transition-all flex items-center justify-between group
-                  ${answers[currentIndex] === idx 
-                    ? 'border-[#FF9933] bg-[#FF9933]/5 text-[#FF9933]' 
-                    : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'}`}
-              >
-                <div className="flex items-center gap-4">
-                  <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm transition-colors
-                    ${answers[currentIndex] === idx ? 'bg-[#FF9933] text-white' : 'bg-gray-100 text-gray-500'}`}>
-                    {String.fromCharCode(65 + idx)}
-                  </span>
-                  <span className="font-medium">{option}</span>
-                </div>
-                {answers[currentIndex] === idx && <CheckCircle2 size={24} />}
-              </button>
-            ))}
+            {currentQuestion.type === 'mcq' && currentQuestion.options ? (
+              currentQuestion.options.map((option, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleAnswer(idx)}
+                  disabled={showExplanation}
+                  className={`w-full text-left p-5 rounded-2xl border-2 transition-all flex items-center justify-between group
+                    ${answers[currentIndex] === idx 
+                      ? 'border-[#FF9933] bg-[#FF9933]/5 text-[#FF9933]' 
+                      : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'}`}
+                >
+                  <div className="flex items-center gap-4">
+                    <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm transition-colors
+                      ${answers[currentIndex] === idx ? 'bg-[#FF9933] text-white' : 'bg-gray-100 text-gray-500'}`}>
+                      {String.fromCharCode(65 + idx)}
+                    </span>
+                    <span className="font-medium">{option}</span>
+                  </div>
+                  {answers[currentIndex] === idx && <CheckCircle2 size={24} />}
+                </button>
+              ))
+            ) : (
+              <textarea
+                value={answers[currentIndex] === -1 ? '' : answers[currentIndex] as string}
+                onChange={(e) => handleAnswer(e.target.value)}
+                placeholder="Type your answer here based on Srila Prabhupada's teachings..."
+                className="w-full p-6 rounded-2xl border-2 border-gray-100 focus:border-[#FF9933] focus:ring-0 outline-none min-h-[200px] text-lg leading-relaxed transition-all"
+              />
+            )}
           </div>
 
           <AnimatePresence>
@@ -777,7 +831,7 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
   const [questions, setQuestions] = useState<Question[]>([]);
   const [showAddQ, setShowAddQ] = useState(false);
   const [newQ, setNewQ] = useState<Partial<Question>>({
-    questionText: '', options: ['', '', '', ''], correctOptionIndex: 0, explanation: ''
+    type: 'mcq', questionText: '', options: ['', '', '', ''], correctOptionIndex: 0, explanation: '', idealAnswer: ''
   });
 
   const loadQuestions = async () => {
@@ -795,7 +849,7 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
       // Update exam total questions count
       await setDoc(doc(db, 'exams', exam.id), { totalQuestions: questions.length + 1 }, { merge: true });
       setShowAddQ(false);
-      setNewQ({ questionText: '', options: ['', '', '', ''], correctOptionIndex: 0, explanation: '' });
+      setNewQ({ type: 'mcq', questionText: '', options: ['', '', '', ''], correctOptionIndex: 0, explanation: '', idealAnswer: '' });
       loadQuestions();
       onRefresh();
     } catch (err) { handleFirestoreError(err, OperationType.WRITE, 'questions'); }
@@ -831,34 +885,66 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
 
             {showAddQ && (
                <form onSubmit={handleAddQuestion} className="bg-white p-6 rounded-2xl shadow-sm border border-[#FF9933]/20 mb-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-bold mb-1">Question Text</label>
-                  <input required value={newQ.questionText} onChange={e => setNewQ({...newQ, questionText: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200" />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {newQ.options?.map((opt, i) => (
-                    <div key={i}>
-                      <label className="block text-xs font-bold mb-1">Option {String.fromCharCode(65 + i)}</label>
-                      <input required value={opt} onChange={e => {
-                        const opts = [...newQ.options!];
-                        opts[i] = e.target.value;
-                        setNewQ({...newQ, options: opts});
-                      }} className="w-full p-2 rounded-lg border border-gray-200" />
-                    </div>
-                  ))}
-                </div>
-                <div className="flex items-center gap-4">
-                   <div className="flex-1">
-                    <label className="block text-sm font-bold mb-1">Correct Answer</label>
-                    <select value={newQ.correctOptionIndex} onChange={e => setNewQ({...newQ, correctOptionIndex: parseInt(e.target.value)})} className="w-full p-3 rounded-xl border border-gray-200">
-                      {newQ.options?.map((_, i) => <option key={i} value={i}>Option {String.fromCharCode(65 + i)}</option>)}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold mb-1">Question Type</label>
+                    <select 
+                      value={newQ.type} 
+                      onChange={e => setNewQ({...newQ, type: e.target.value as any})}
+                      className="w-full p-3 rounded-xl border border-gray-200"
+                    >
+                      <option value="mcq">Multiple Choice</option>
+                      <option value="descriptive">Descriptive (AI Graded)</option>
                     </select>
                   </div>
-                  <div className="flex-[2]">
-                    <label className="block text-sm font-bold mb-1">Explanation</label>
-                    <input required value={newQ.explanation} onChange={e => setNewQ({...newQ, explanation: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200" placeholder="Why is this correct?" />
+                  <div>
+                    <label className="block text-sm font-bold mb-1">Question Text</label>
+                    <input required value={newQ.questionText} onChange={e => setNewQ({...newQ, questionText: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200" />
                   </div>
                 </div>
+
+                {newQ.type === 'mcq' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {newQ.options?.map((opt, i) => (
+                      <div key={i}>
+                        <label className="block text-xs font-bold mb-1">Option {String.fromCharCode(65 + i)}</label>
+                        <input required value={opt} onChange={e => {
+                          const opts = [...newQ.options!];
+                          opts[i] = e.target.value;
+                          setNewQ({...newQ, options: opts});
+                        }} className="w-full p-2 rounded-lg border border-gray-200" />
+                      </div>
+                    ))}
+                    <div className="md:col-span-2">
+                       <label className="block text-sm font-bold mb-1">Correct Answer Index</label>
+                       <select 
+                        value={newQ.correctOptionIndex} 
+                        onChange={e => setNewQ({...newQ, correctOptionIndex: parseInt(e.target.value)})}
+                        className="w-full p-3 rounded-xl border border-gray-200"
+                        >
+                        {newQ.options?.map((_, i) => <option key={i} value={i}>Option {String.fromCharCode(65 + i)}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-bold mb-1">Ideal Answer (For AI Grading)</label>
+                    <textarea 
+                      required 
+                      value={newQ.idealAnswer} 
+                      onChange={e => setNewQ({...newQ, idealAnswer: e.target.value})} 
+                      className="w-full p-3 rounded-xl border border-gray-200" 
+                      rows={4}
+                      placeholder="Enter the correct points that the AI should look for in devotee answers..."
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-bold mb-1">Explanation</label>
+                  <input required value={newQ.explanation} onChange={e => setNewQ({...newQ, explanation: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200" placeholder="Why is this correct?" />
+                </div>
+                
                 <div className="flex gap-3">
                    <button type="button" onClick={() => setShowAddQ(false)} className="px-4 py-2 text-gray-500 font-bold">Cancel</button>
                    <button type="submit" className="px-6 py-2 bg-[#FF9933] text-white rounded-xl font-bold shadow-lg shadow-[#FF9933]/20">Save Question</button>
@@ -871,14 +957,19 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
                 <div key={q.id} className="p-4 bg-white rounded-xl border border-gray-100 flex items-start gap-4">
                   <span className="font-bold text-gray-300 text-lg">#{i+1}</span>
                   <div className="flex-1">
-                    <p className="font-medium mb-2">{q.questionText}</p>
-                    <div className="flex flex-wrap gap-2">
-                       {q.options.map((opt, idx) => (
-                         <span key={idx} className={`text-[10px] px-2 py-0.5 rounded-full border ${idx === q.correctOptionIndex ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-100'}`}>
-                           {opt}
-                         </span>
-                       ))}
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-bold uppercase tracking-widest">{q.type}</span>
+                      <p className="font-medium italic">{q.questionText}</p>
                     </div>
+                    {q.type === 'mcq' && q.options && (
+                      <div className="flex flex-wrap gap-2">
+                        {q.options.map((opt, idx) => (
+                          <span key={idx} className={`text-[10px] px-2 py-0.5 rounded-full border ${idx === q.correctOptionIndex ? 'bg-green-50 text-green-600 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-100'}`}>
+                            {opt}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

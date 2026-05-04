@@ -30,16 +30,18 @@
     },
     "Question": {
       "title": "Question",
-      "description": "A multiple choice question for an exam",
+      "description": "A question for an exam (MCQ or Descriptive)",
       "type": "object",
       "properties": {
+        "type": { "type": "string", "enum": ["mcq", "descriptive"] },
         "questionText": { "type": "string" },
         "options": { "type": "array" },
         "correctOptionIndex": { "type": "number" },
+        "idealAnswer": { "type": "string" },
         "explanation": { "type": "string" },
         "order": { "type": "number" }
       },
-      "required": ["questionText", "options", "correctOptionIndex"]
+      "required": ["type", "questionText"]
     },
     "Submission": {
       "title": "Submission",
@@ -52,6 +54,7 @@
         "score": { "type": "number" },
         "total": { "type": "number" },
         "answers": { "type": "array" },
+        "results": { "type": "array" },
         "completedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "examId", "examTitle", "score", "total"]
