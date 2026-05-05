@@ -753,23 +753,46 @@ function ResultsView({ userId }: { userId: string }) {
   );
 }
 
-function CertificateView({ submission }: { submission: Submission }) {
-  const percentage = submission.totalPoints > 0 ? Math.round((submission.score / submission.totalPoints) * 100) : 0;
+function CertificateView({ submission, overrides }: { submission: Submission, overrides?: any }) {
+  const safeTotal = submission.totalPoints && submission.totalPoints > 0 ? submission.totalPoints : 100;
+  const percentage = Math.round((submission.score / (submission.totalPoints || 1)) * 100) || 0;
   
+  const data = {
+    userName: overrides?.userName || submission.userName,
+    examTitle: overrides?.examTitle || submission.examTitle,
+    score: overrides?.score !== undefined ? overrides.score : submission.score,
+    adminRole: overrides?.adminRole || "Administrative Head",
+    adminName: overrides?.adminName || "HG Prahlad Bhaktha das",
+    authoritySign: overrides?.authoritySign || "Admin Authority",
+    instituteName: overrides?.instituteName || "International Sri Krishna Mandir",
+    academyName: overrides?.academyName || "Bhaktivedanta Academy of Education",
+    teachingsOf: overrides?.teachingsOf || "Srila Prabhupada",
+    logoText: overrides?.logoText || "ISKM",
+    logoUrl: overrides?.logoUrl || "",
+    signatureUrl: overrides?.signatureUrl || ""
+  };
+
+  const currentScore = data.score !== undefined ? data.score : submission.score;
+  const displayPercentage = Math.round((currentScore / safeTotal) * 100) || 0;
+
   return (
     <div className="bg-white p-16 shadow-2xl relative overflow-hidden border-[16px] border-[#FF9933]/10 print:shadow-none print:border-[#FF9933] print:p-8 certificate-content" id="certificate-content">
       {/* Background Ornament */}
       <div className="absolute top-0 right-0 w-64 h-64 bg-[#FF9933]/5 rounded-full -mr-32 -mt-32 blur-3xl" />
-      <div className="absolute bottom-0 left-0 w-64 h-64 bg-[#FF9933]/5 rounded-full -ml-32 -mb-32 blur-3xl" />
+      <div className="absolute bottom-0 left-0 w-64 h-64 bg-[#FF9933]/5 rounded-full -ml-32 -mb-32 blur-3xl secondary-ornament" />
       
       <div className="relative border-4 border-[#FF9933]/20 p-12 flex flex-col items-center text-center">
         {/* Logo Section */}
         <div className="mb-8 flex flex-col items-center">
-          <div className="w-24 h-24 bg-[#FF9933] rounded-3xl rotate-45 flex items-center justify-center text-white mb-8 shadow-xl shadow-[#FF9933]/30">
-             <div className="-rotate-45 font-black text-3xl">ISKM</div>
-          </div>
-          <h1 className="text-4xl font-black text-[#2D2D2D] tracking-tighter uppercase mb-1">International Sri Krishna Mandir</h1>
-          <p className="text-[#FF9933] font-bold tracking-[0.3em] text-xs uppercase underline decoration-2 underline-offset-4 decoration-[#FF9933]/20">Bhaktivedanta Academy of Education</p>
+          {data.logoUrl ? (
+            <img src={data.logoUrl} alt="Logo" className="w-24 h-24 object-contain mb-8" referrerPolicy="no-referrer" />
+          ) : (
+            <div className="w-24 h-24 bg-[#FF9933] rounded-3xl rotate-45 flex items-center justify-center text-white mb-8 shadow-xl shadow-[#FF9933]/30">
+               <div className="-rotate-45 font-black text-3xl">{data.logoText}</div>
+            </div>
+          )}
+          <h1 className="text-4xl font-black text-[#2D2D2D] tracking-tighter uppercase mb-1">{data.instituteName}</h1>
+          <p className="text-[#FF9933] font-bold tracking-[0.3em] text-xs uppercase underline decoration-2 underline-offset-4 decoration-[#FF9933]/20">{data.academyName}</p>
         </div>
 
         <div className="mb-10">
@@ -780,14 +803,14 @@ function CertificateView({ submission }: { submission: Submission }) {
         <p className="text-xl text-gray-500 mb-6 font-medium italic">This is to certify that</p>
         
         <h3 className="text-5xl font-bold text-[#2D2D2D] mb-10 pb-2 border-b-2 border-gray-100 min-w-[400px]">
-          {submission.userName}
+          {data.userName}
         </h3>
 
         <p className="max-w-xl mx-auto text-gray-500 leading-relaxed text-lg mb-12">
           has successfully demonstrated exceptional proficiency in the examination on <br/>
-          <span className="font-bold text-[#2D2D2D] text-2xl group block mt-2">"{submission.examTitle}"</span> <br/>
-          achieving a grade of <span className="text-[#FF9933] font-black">{percentage}%</span> and gaining deep spiritual realizations 
-          according to the teachings of <span className="font-bold text-gray-700 italic">Srila Prabhupada</span>.
+          <span className="font-bold text-[#2D2D2D] text-2xl group block mt-2">"{data.examTitle}"</span> <br/>
+          achieving a grade of <span className="text-[#FF9933] font-black">{displayPercentage}%</span> and gaining deep spiritual realizations 
+          according to the teachings of <span className="font-bold text-gray-700 italic">{data.teachingsOf}</span>.
         </p>
 
         <div className="grid grid-cols-2 gap-20 w-full max-w-2xl items-end mt-12 bg-gray-50/50 p-8 rounded-3xl">
@@ -798,12 +821,16 @@ function CertificateView({ submission }: { submission: Submission }) {
           </div>
           <div className="text-center relative">
              {/* Signature Mock */}
-            <div className="absolute -top-16 left-1/2 -translate-x-1/2 w-48 h-20 opacity-80 pointer-events-none select-none">
-               <div className="font-serif italic text-4xl text-[#1A1A1A] skew-x-[-15deg] opacity-60">Admin Authority</div>
+            <div className="absolute -top-16 left-1/2 -translate-x-1/2 w-48 h-20 opacity-80 pointer-events-none select-none flex items-center justify-center">
+               {data.signatureUrl ? (
+                 <img src={data.signatureUrl} alt="Signature" className="max-h-full object-contain" referrerPolicy="no-referrer" />
+               ) : (
+                 <div className="font-serif italic text-4xl text-[#1A1A1A] skew-x-[-15deg] opacity-60 signature-text">{data.authoritySign}</div>
+               )}
             </div>
             <div className="h-px bg-gray-300 w-full mb-4" />
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Administrative Head</p>
-            <p className="font-bold text-[#FF9933] text-lg">Srila Prabhupada's Servants</p>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">{data.adminRole}</p>
+            <p className="font-bold text-[#FF9933] text-lg">{data.adminName}</p>
           </div>
         </div>
 
@@ -816,6 +843,7 @@ function CertificateView({ submission }: { submission: Submission }) {
 
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
+          @page { size: landscape; margin: 0; }
           body * { visibility: hidden; }
           .certificate-content, .certificate-content * { visibility: visible !important; }
           .certificate-content { 
@@ -830,6 +858,9 @@ function CertificateView({ submission }: { submission: Submission }) {
             box-shadow: none !important;
             z-index: 9999 !important;
             background: white !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
           }
           .no-print { display: none !important; }
         }
@@ -1200,17 +1231,34 @@ function AdminPanel() {
       {viewingAdminCertificate && (
         <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4">
           <div className="w-full max-w-6xl max-h-[95vh] overflow-hidden bg-white rounded-3xl flex flex-col shadow-2xl">
-            <div className="p-6 bg-gray-50 border-b border-gray-100 flex flex-wrap justify-between items-center gap-4 no-print">
-              <div className="flex items-center gap-6">
-                <div>
-                  <h3 className="text-xl font-bold">Certificate Editor</h3>
-                  <p className="text-xs text-gray-500">Edit details below to customize the certificate before printing.</p>
+            <div className="p-6 bg-gray-50 border-b border-gray-100 flex flex-wrap justify-between items-center gap-4 no-print overflow-y-auto max-h-[40vh]">
+              <div className="flex flex-col gap-4 w-full">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold">Certificate Customizer</h3>
+                    <p className="text-xs text-gray-500">Modify any field below then click 'Print / Save PDF'.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => window.print()}
+                      className="bg-[#FF9933] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-[#FF9933]/20 hover:scale-105 transition-transform"
+                    >
+                      <Printer size={20} /> Print / Save PDF
+                    </button>
+                    <button 
+                      onClick={() => setViewingAdminCertificate(null)}
+                      className="bg-white border border-gray-200 text-gray-500 p-3 rounded-xl hover:bg-gray-50 transition-colors"
+                    >
+                      <XCircle size={24} />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-3">
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white p-4 rounded-2xl border border-gray-100">
                   <div className="flex flex-col">
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Student Name</span>
                     <input 
-                      className="text-sm p-1 border-b border-gray-300 focus:border-[#FF9933] outline-none" 
+                      className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
                       value={viewingAdminCertificate.userName || ''} 
                       onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, userName: e.target.value})}
                     />
@@ -1218,40 +1266,101 @@ function AdminPanel() {
                   <div className="flex flex-col">
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Exam Title</span>
                     <input 
-                      className="text-sm p-1 border-b border-gray-300 focus:border-[#FF9933] outline-none" 
+                      className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
                       value={viewingAdminCertificate.examTitle || ''} 
                       onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, examTitle: e.target.value})}
                     />
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Final Score</span>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Score</span>
                     <input 
                       type="number"
-                      className="text-sm p-1 border-b border-gray-300 focus:border-[#FF9933] outline-none w-16" 
+                      className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
                       value={viewingAdminCertificate.score} 
                       onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, score: parseFloat(e.target.value)})}
                     />
                   </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Teachings Of</span>
+                    <input 
+                      className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
+                      value={viewingAdminCertificate.teachingsOf || 'Srila Prabhupada'} 
+                      onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, teachingsOf: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 bg-white p-4 rounded-2xl border border-gray-100">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Logo Text / Image URL</span>
+                    <input 
+                      placeholder="ISKM or Image URL"
+                      className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
+                      value={viewingAdminCertificate.logoUrl || viewingAdminCertificate.logoText || 'ISKM'} 
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.startsWith('http') || val.startsWith('data:')) {
+                           setViewingAdminCertificate({...viewingAdminCertificate, logoUrl: val, logoText: ''});
+                        } else {
+                           setViewingAdminCertificate({...viewingAdminCertificate, logoText: val, logoUrl: ''});
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Institute Name</span>
+                    <input 
+                      className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
+                      value={viewingAdminCertificate.instituteName || 'International Sri Krishna Mandir'} 
+                      onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, instituteName: e.target.value})}
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Academy Name</span>
+                    <input 
+                      className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
+                      value={viewingAdminCertificate.academyName || 'Bhaktivedanta Academy of Education'} 
+                      onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, academyName: e.target.value})}
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Admin Role (e.g. Principal)</span>
+                    <input 
+                      className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
+                      value={viewingAdminCertificate.adminRole || 'Administrative Head'} 
+                      onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, adminRole: e.target.value})}
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Admin Name</span>
+                    <input 
+                      className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
+                      value={viewingAdminCertificate.adminName || "HG Prahlad Bhaktha das"} 
+                      onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, adminName: e.target.value})}
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Sign Display / Image URL</span>
+                    <input 
+                      placeholder="Text or Image URL"
+                      className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200 font-serif italic" 
+                      value={viewingAdminCertificate.signatureUrl || viewingAdminCertificate.authoritySign || 'Admin Authority'} 
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.startsWith('http') || val.startsWith('data:')) {
+                           setViewingAdminCertificate({...viewingAdminCertificate, signatureUrl: val, authoritySign: ''});
+                        } else {
+                           setViewingAdminCertificate({...viewingAdminCertificate, authoritySign: val, signatureUrl: ''});
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
-              <div className="flex gap-2">
-                 <button 
-                  onClick={() => window.print()}
-                  className="bg-[#FF9933] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-[#FF9933]/20 hover:scale-105 transition-transform"
-                >
-                  <Printer size={20} /> Print / Save PDF
-                </button>
-                <button 
-                  onClick={() => setViewingAdminCertificate(null)}
-                  className="bg-white border border-gray-200 text-gray-500 p-3 rounded-xl hover:bg-gray-50 transition-colors"
-                >
-                  <XCircle size={24} />
-                </button>
-              </div>
             </div>
-            <div className="p-12 overflow-y-auto bg-gray-100 flex-1">
-              <div className="max-w-4xl mx-auto origin-top scale-90 md:scale-100">
-                <CertificateView submission={viewingAdminCertificate} />
+            <div className="p-12 overflow-y-auto bg-gray-100 flex-1 flex justify-center items-start">
+              <div className="max-w-[1000px] w-full origin-top transform transition-all duration-300">
+                <CertificateView submission={viewingAdminCertificate} overrides={viewingAdminCertificate} />
               </div>
             </div>
           </div>
