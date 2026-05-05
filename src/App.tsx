@@ -26,7 +26,10 @@ import {
   Trash2,
   Mail,
   Calendar,
-  User
+  User,
+  ShieldCheck,
+  UserCheck,
+  UserMinus
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toPng } from 'html-to-image';
@@ -213,6 +216,7 @@ export default function App() {
 function ProfilePage({ profile }: { profile: UserProfile }) {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pdfGeneratingId, setPdfGeneratingId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchSubmissions = async () => {
@@ -228,6 +232,51 @@ function ProfilePage({ profile }: { profile: UserProfile }) {
     fetchSubmissions();
   }, [profile.uid]);
 
+  const downloadPDF = async (submission: Submission) => {
+    setPdfGeneratingId(submission.id);
+    try {
+      // Create a temporary hidden container for the certificate to capture it perfectly
+      const container = document.createElement('div');
+      container.style.position = 'absolute';
+      container.style.left = '-9999px';
+      container.style.top = '0';
+      container.id = 'temp-cert-container';
+      document.body.appendChild(container);
+
+      // We need to render the CertificateView into this container
+      // Since we are in a functional component, we can't easily "render" manually without react-dom/client
+      // But we already have a Cert renderer, maybe we just use a hidden one in the DOM
+      
+      // Let's use the one already in the DOM if we are viewing it, 
+      // but for "Bulk" download from profile, we need a smarter way or a dedicated hidden Cert component
+      
+      // I'll add a hidden CertificateView at the end of ProfilePage for this purpose
+      const element = document.getElementById(`hidden-cert-${submission.id}`);
+      if (!element) throw new Error("Certificate element not found");
+
+      const dataUrl = await toPng(element as HTMLElement, {
+        quality: 1.0,
+        pixelRatio: 2,
+        backgroundColor: '#ffffff'
+      });
+
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
+      
+      pdf.addImage(dataUrl, 'PNG', 0, 0, 297, 210, undefined, 'SLOW');
+      pdf.save(`Certificate_${submission.examTitle?.replace(/\s+/g, '_')}_${profile.displayName?.replace(/\s+/g, '_')}.pdf`);
+    } catch (err) {
+      console.error("PDF Export failed", err);
+      alert("Professional quality download failed. Please try viewing it first and then printing.");
+    } finally {
+      setPdfGeneratingId(null);
+    }
+  };
+
   const gradedSubmissions = submissions.filter(s => s.status === 'graded');
   const totalExams = gradedSubmissions.length;
   const averageScore = totalExams > 0 
@@ -239,7 +288,7 @@ function ProfilePage({ profile }: { profile: UserProfile }) {
 
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-5xl mx-auto space-y-8">
-      {/* Header Profile Section */}
+      {/* ... existing header ... */}
       <div className="bg-white rounded-3xl p-8 shadow-xl border border-gray-100 flex flex-col md:flex-row items-center gap-8 text-center md:text-left">
         <div className="w-32 h-32 bg-[#FF9933]/10 rounded-full flex items-center justify-center text-[#FF9933] border-4 border-white shadow-lg">
           <User size={64} strokeWidth={1.5} />
@@ -291,7 +340,7 @@ function ProfilePage({ profile }: { profile: UserProfile }) {
         </div>
       </div>
 
-      {/* Recent Activity */}
+      {/* Activity */}
       <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-6 border-b border-gray-50 flex items-center justify-between">
           <h3 className="text-xl font-bold flex items-center gap-2">
@@ -318,8 +367,24 @@ function ProfilePage({ profile }: { profile: UserProfile }) {
                        </div>
                     </div>
                     {s.isCertified && (
-                      <div className="p-2 bg-yellow-50 rounded-xl text-yellow-600" title="Certified">
-                        <Award size={24} />
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 bg-yellow-50 rounded-xl text-yellow-600" title="Certified">
+                          <Award size={24} />
+                        </div>
+                        <button 
+                          onClick={() => downloadPDF(s)}
+                          disabled={pdfGeneratingId === s.id}
+                          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-bold hover:bg-green-700 transition-all shadow-md shadow-green-100 disabled:opacity-50"
+                        >
+                          {pdfGeneratingId === s.id ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                          PDF
+                        </button>
+                        {/* Hidden Certificate for capture */}
+                        <div className="absolute h-0 w-0 overflow-hidden pointer-events-none opacity-0">
+                          <div id={`hidden-cert-${s.id}`} style={{ width: '1200px' }}>
+                            <CertificateView submission={s} />
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -336,6 +401,7 @@ function ProfilePage({ profile }: { profile: UserProfile }) {
     </motion.div>
   );
 }
+
 
 function LeaderboardView() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
@@ -881,12 +947,59 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
                 </button>
               ))
             ) : (
-              <textarea
-                value={answers[currentIndex] === -1 ? '' : answers[currentIndex] as string}
-                onChange={(e) => handleAnswer(e.target.value)}
-                placeholder="Type your answer here based on Srila Prabhupada's teachings..."
-                className="w-full p-6 rounded-2xl border-2 border-gray-100 focus:border-[#FF9933] focus:ring-0 outline-none min-h-[200px] text-lg leading-relaxed transition-all"
-              />
+              <div className="space-y-4">
+                <textarea
+                  value={typeof answers[currentIndex] === 'string' && (answers[currentIndex] as string).startsWith('data:image') ? '' : (answers[currentIndex] === -1 ? '' : answers[currentIndex] as string)}
+                  onChange={(e) => handleAnswer(e.target.value)}
+                  placeholder="Type your answer here or upload a photo of your answer script below..."
+                  className="w-full p-6 rounded-2xl border-2 border-gray-100 focus:border-[#FF9933] focus:ring-0 outline-none min-h-[150px] text-lg leading-relaxed transition-all"
+                />
+                
+                <div className="relative group">
+                  <input 
+                    type="file" 
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                          handleAnswer(reader.result as string);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    className="hidden" 
+                    id={`upload-${currentIndex}`}
+                  />
+                  <label 
+                    htmlFor={`upload-${currentIndex}`}
+                    className="flex flex-col items-center justify-center w-full p-8 border-2 border-dashed border-gray-200 rounded-2xl cursor-pointer hover:border-[#FF9933] hover:bg-orange-50/30 transition-all"
+                  >
+                    {typeof answers[currentIndex] === 'string' && (answers[currentIndex] as string).startsWith('data:image') ? (
+                      <div className="relative w-full aspect-video rounded-xl overflow-hidden shadow-inner bg-black/5">
+                        <img 
+                          src={answers[currentIndex] as string} 
+                          alt="Answer Preview" 
+                          className="w-full h-full object-contain"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white font-bold">
+                          Change Photo
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center text-[#FF9933] mb-3">
+                          <PlusCircle size={24} />
+                        </div>
+                        <p className="font-bold text-gray-700">Upload Answer Photo</p>
+                        <p className="text-xs text-gray-400 mt-1 uppercase tracking-widest font-black">JPG, PNG allowed</p>
+                      </>
+                    )}
+                  </label>
+                </div>
+              </div>
             )}
           </div>
 
@@ -968,20 +1081,37 @@ function ResultsView({ userId }: { userId: string }) {
           animate={{ opacity: 1 }} 
           className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
         >
-          <div className="relative w-full max-w-3xl">
+          <div className="relative w-full max-w-6xl">
             <button 
               onClick={() => setShowCertificateFor(null)}
               className="absolute -top-12 right-0 text-white flex items-center gap-2 font-bold hover:text-[#FF9933] transition-colors"
             >
               <XCircle size={24} /> Close
             </button>
-            <CertificateView submission={showCertificateFor} />
-            <div className="mt-6 flex justify-center no-print">
+            
+            <div id="capture-cert">
+              <CertificateView submission={showCertificateFor} />
+            </div>
+
+            <div className="mt-6 flex justify-center gap-4 no-print flex-wrap">
                <button 
                 onClick={() => window.print()} 
-                className="bg-[#FF9933] text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg"
+                className="bg-white text-gray-700 border border-gray-200 px-8 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 active:scale-95 transition-all"
                >
-                 Print Certificate
+                 <Printer size={20} /> Print
+               </button>
+               <button 
+                onClick={async () => {
+                  const element = document.getElementById('capture-cert');
+                  if (!element) return;
+                  const dataUrl = await toPng(element, { quality: 1.0, pixelRatio: 2 });
+                  const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+                  pdf.addImage(dataUrl, 'PNG', 0, 0, 297, 210);
+                  pdf.save(`Certificate_${showCertificateFor.userName}.pdf`);
+                }} 
+                className="bg-[#FF9933] text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-[#FF9933]/20 active:scale-95 transition-all"
+               >
+                 <Download size={20} /> Download PDF
                </button>
             </div>
           </div>
@@ -1088,12 +1218,26 @@ function ResultsView({ userId }: { userId: string }) {
                       <div className="mt-6">
                         <h4 className="font-bold text-sm text-gray-400 uppercase tracking-widest mb-2">Answers Provided</h4>
                         <div className="space-y-2">
-                           {s.answers.map((ans, idx) => (
-                             <div key={idx} className="text-sm p-2 bg-gray-50 rounded-lg text-gray-600">
-                               <span className="font-bold mr-2 text-gray-400">Q{idx+1}:</span> 
-                               {typeof ans === 'number' ? `Option ${String.fromCharCode(65 + ans)}` : ans}
-                             </div>
-                           ))}
+                           {s.answers.map((ans: any, idx) => {
+                             const answerValue = typeof ans === 'object' ? ans.answer : ans;
+                             return (
+                               <div key={idx} className="text-sm p-2 bg-gray-50 rounded-lg text-gray-600">
+                                 <span className="font-bold mr-2 text-gray-400">Q{idx+1}:</span> 
+                                 {typeof answerValue === 'number' ? (
+                                   `Option ${String.fromCharCode(65 + answerValue)}`
+                                 ) : (
+                                   typeof answerValue === 'string' && answerValue.startsWith('data:image') ? (
+                                     <div className="mt-2">
+                                       <img src={answerValue} alt="Answer" className="max-w-xs rounded-lg border border-gray-200" referrerPolicy="no-referrer" />
+                                       <span className="text-[10px] text-gray-400 block mt-1">Image Uploaded</span>
+                                     </div>
+                                   ) : (
+                                     answerValue
+                                   )
+                                 )}
+                               </div>
+                             );
+                           })}
                         </div>
                       </div>
                     </motion.div>
@@ -1111,7 +1255,6 @@ function ResultsView({ userId }: { userId: string }) {
 function CertificateView({ submission, overrides }: { submission: Submission, overrides?: any }) {
   const safeScore = Number(overrides?.score !== undefined ? overrides.score : submission.score) || 0;
   const safeTotalPoints = Number(submission.totalPoints) || 1;
-  const percentage = Math.round((safeScore / safeTotalPoints) * 100) || 0;
   
   const data = {
     userName: overrides?.userName || submission.userName,
@@ -1130,89 +1273,87 @@ function CertificateView({ submission, overrides }: { submission: Submission, ov
 
   return (
     <div 
-      className="bg-[#fdfbf7] p-8 sm:p-12 shadow-2xl relative certificate-content mx-auto" 
+      className="bg-[#fdfbf7] p-4 sm:p-12 shadow-2xl relative certificate-content mx-auto overflow-visible" 
       id="certificate-content" 
       style={{ 
         width: '100%',
-        maxWidth: '1050px',
+        maxWidth: '1200px',
         aspectRatio: '1.414 / 1',
         display: 'flex',
         flexDirection: 'column',
         boxSizing: 'border-box',
-        border: '14px solid #c5a059',
+        border: 'min(14px, 2vw) solid #c5a059',
         outline: '1px solid #8e6d2d',
         outlineOffset: '-22px',
-        overflow: 'hidden'
+        background: '#fdfbf7'
       }}
     >
       {/* Decorative Layer */}
-      <div className="absolute inset-0 border-[1px] border-[#c5a059]/30 m-8 pointer-events-none" />
-      <div className="absolute inset-0 border-[1px] border-[#c5a059]/10 m-10 pointer-events-none" />
+      <div className="absolute inset-0 border-[1px] border-[#c5a059]/30 m-2 sm:m-8 pointer-events-none" />
+      <div className="absolute inset-0 border-[1px] border-[#c5a059]/10 m-3 sm:m-10 pointer-events-none" />
 
-      {/* Ornamented Corners */}
-      <div className="absolute top-6 left-6 w-16 h-16 sm:w-24 sm:h-24 border-t-2 border-l-2 border-[#8e6d2d]/40 pointer-events-none" />
-      <div className="absolute top-6 right-6 w-16 h-16 sm:w-24 sm:h-24 border-t-2 border-r-2 border-[#8e6d2d]/40 pointer-events-none" />
-      <div className="absolute bottom-6 left-6 w-16 h-16 sm:w-24 sm:h-24 border-b-2 border-l-2 border-[#8e6d2d]/40 pointer-events-none" />
-      <div className="absolute bottom-6 right-6 w-16 h-16 sm:w-24 sm:h-24 border-b-2 border-r-2 border-[#8e6d2d]/40 pointer-events-none" />
-
-      <div className="relative flex-1 flex flex-col items-center justify-between py-6 sm:py-12 px-6 sm:px-16">
+      <div className="relative flex-1 flex flex-col items-center justify-between py-2 sm:py-8 px-2 sm:px-16 text-center">
         {/* Logo and Institution */}
-        <div className="flex flex-col items-center space-y-2 sm:space-y-4">
+        <div className="flex flex-col items-center space-y-1 sm:space-y-4">
           {data.logoUrl ? (
-            <img src={data.logoUrl} alt="Logo" className="h-16 sm:h-32 object-contain" referrerPolicy="no-referrer" />
+            <img src={data.logoUrl} alt="Logo" className="h-12 sm:h-32 object-contain" referrerPolicy="no-referrer" />
           ) : (
-            <div className="w-16 h-16 sm:w-32 sm:h-32 bg-[#c5a059] rounded-full flex items-center justify-center text-white shadow-xl border-4 sm:border-8 border-white/50">
-               <div className="font-serif font-black text-lg sm:text-4xl">{data.logoText}</div>
+            <div className="w-12 h-12 sm:w-32 sm:h-32 bg-[#c5a059] rounded-full flex items-center justify-center text-white shadow-xl border-4 sm:border-8 border-white/50">
+               <div className="font-serif font-black text-xs sm:text-4xl">{data.logoText}</div>
             </div>
           )}
           <div className="text-center">
-            <h1 className="text-xl sm:text-5xl font-serif font-bold text-[#1a1a1a] uppercase tracking-normal leading-tight">{data.instituteName}</h1>
-            <p className="text-[#8e6d2d] font-bold tracking-[0.4em] text-[8px] sm:text-[18px] uppercase">{data.academyName}</p>
+            <h1 className="text-base sm:text-5xl font-serif font-bold text-[#1a1a1a] uppercase tracking-normal leading-tight">{data.instituteName}</h1>
+            <p className="text-[#8e6d2d] font-bold tracking-[0.2em] sm:tracking-[0.4em] text-[6px] sm:text-[18px] uppercase">{data.academyName}</p>
           </div>
         </div>
 
-        {/* Seal - Decorative Absolute Element */}
-        <div className="absolute right-12 top-1/2 -translate-y-1/2 opacity-10 pointer-events-none select-none">
-           <div className="relative w-48 h-48 border-8 border-[#c5a059] rounded-full flex items-center justify-center rotate-12">
-              <div className="text-[#c5a059] font-serif font-black text-4xl text-center leading-none">
+        {/* Seal */}
+        <div className="absolute right-4 sm:right-12 top-1/2 -translate-y-1/2 opacity-10 pointer-events-none select-none">
+           <div className="relative w-24 h-24 sm:w-48 sm:h-48 border-4 sm:border-8 border-[#c5a059] rounded-full flex items-center justify-center rotate-12">
+              <div className="text-[#c5a059] font-serif font-black text-xs sm:text-4xl text-center leading-none">
                  OFFICIAL<br/>SEAL
               </div>
-              <div className="absolute inset-0 border-4 border-[#c5a059] m-2 rounded-full border-dashed" />
+              <div className="absolute inset-0 border-2 sm:border-4 border-[#c5a059] m-1 sm:m-2 rounded-full border-dashed" />
            </div>
         </div>
 
         {/* Awardee Name */}
-        <div className="flex flex-col items-center w-full space-y-4 flex-1 justify-center py-4 sm:py-8">
-          <p className="text-gray-600 font-serif italic text-sm sm:text-3xl">This certificate is awarded to</p>
-          <h3 className="text-2xl sm:text-8xl font-serif font-bold text-[#1a1a1a] tracking-tight text-center leading-none">
+        <div className="flex flex-col items-center w-full space-y-1 sm:space-y-4 flex-1 justify-center py-2 sm:py-8">
+          <p className="text-gray-600 font-serif italic text-[10px] sm:text-3xl">This certificate is awarded to</p>
+          <h3 className="text-xl sm:text-8xl font-serif font-bold text-[#1a1a1a] tracking-tight text-center leading-none px-4">
             {data.userName}
           </h3>
-          <div className="h-1 w-32 sm:w-96 bg-[#c5a059]/40 rounded-full" />
+          <p className="text-gray-600 font-serif italic text-[8px] sm:text-2xl mt-1 sm:mt-2">for successful completion of</p>
+          <h4 className="text-xs sm:text-4xl font-serif font-bold text-[#8e6d2d] tracking-wide uppercase">
+            {data.examTitle}
+          </h4>
+          <div className="h-[2px] sm:h-1 w-16 sm:w-96 bg-[#c5a059]/40 rounded-full mt-2" />
         </div>
 
         {/* Date and Signature Row */}
-        <div className="w-full flex justify-between items-end px-2 sm:px-8 pt-2">
+        <div className="w-full flex justify-between items-end px-1 sm:px-8 pt-1">
           {/* Issue Date */}
-          <div className="text-center w-32 sm:w-80">
-            <div className="h-[1px] sm:h-[2px] bg-gray-400 w-full mb-2 sm:mb-4" />
-            <p className="text-[10px] sm:text-lg font-black text-gray-700 uppercase tracking-widest mb-0.5 sm:mb-1">Issued On</p>
-            <p className="font-serif font-bold text-[#1a1a1a] text-[10px] sm:text-3xl">
+          <div className="text-center w-20 sm:w-80">
+            <div className="h-[1px] sm:h-[2px] bg-gray-300 w-full mb-1 sm:mb-4" />
+            <p className="text-[6px] sm:text-lg font-black text-gray-500 uppercase tracking-widest">Issued On</p>
+            <p className="font-serif font-bold text-[#1a1a1a] text-[8px] sm:text-3xl mt-1">
               {new Date(submission.completedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}
             </p>
           </div>
 
           {/* Signature */}
-          <div className="text-center w-32 sm:w-80 relative">
-             <div className="absolute -top-12 sm:-top-40 left-1/2 -translate-x-1/2 w-48 sm:w-[500px] h-12 sm:h-40 flex items-center justify-center">
+          <div className="text-center w-20 sm:w-80 relative">
+             <div className="absolute -top-6 sm:-top-40 left-1/2 -translate-x-1/2 w-32 sm:w-[500px] h-8 sm:h-40 flex items-center justify-center overflow-visible">
                 {data.signatureUrl ? (
                   <img src={data.signatureUrl} alt="Signature" className="max-h-full object-contain" referrerPolicy="no-referrer" />
                 ) : (
-                  <div className="font-serif italic text-lg sm:text-7xl text-[#1a1a1a] skew-x-[-15deg] opacity-90 select-none">{data.authoritySign}</div>
+                  <div className="font-serif italic text-sm sm:text-7xl text-[#1a1a1a] skew-x-[-15deg] opacity-90 select-none whitespace-nowrap">{data.authoritySign}</div>
                 )}
              </div>
-             <div className="h-[1px] sm:h-[2px] bg-gray-400 w-full mb-2 sm:mb-4" />
-             <p className="text-[10px] sm:text-lg font-black text-gray-700 uppercase tracking-widest mb-0.5 sm:mb-1 leading-none">{data.adminRole}</p>
-             <p className="font-serif font-bold text-[#8e6d2d] text-[10px] sm:text-3xl leading-tight">{data.adminName}</p>
+             <div className="h-[1px] sm:h-[2px] bg-gray-300 w-full mb-1 sm:mb-4" />
+             <p className="text-[6px] sm:text-lg font-black text-gray-500 uppercase tracking-widest leading-none">{data.adminRole}</p>
+             <p className="font-serif font-bold text-[#8e6d2d] text-[8px] sm:text-3xl leading-tight">{data.adminName}</p>
           </div>
         </div>
       </div>
@@ -1229,8 +1370,8 @@ function CertificateView({ submission, overrides }: { submission: Submission, ov
             width: 100vw !important; 
             height: 100vh !important; 
             margin: 0 !important;
-            padding: 2cm !important;
-            border-width: 25px !important;
+            padding: 0 !important;
+            border-width: 30px !important;
             box-shadow: none !important;
             z-index: 9999 !important;
             background: white !important;
@@ -1244,6 +1385,7 @@ function CertificateView({ submission, overrides }: { submission: Submission, ov
     </div>
   );
 }
+
 
 function AdminPanel() {
   const [exams, setExams] = useState<Exam[]>([]);
@@ -1271,38 +1413,15 @@ function AdminPanel() {
   const [downloading, setDownloading] = useState(false);
 
   const downloadPDF = async () => {
-    const element = document.getElementById('certificate-content');
+    const element = document.getElementById('admin-cert-capture');
     if (!element || !viewingAdminCertificate) return;
     
     setDownloading(true);
     try {
-      // 1. Prepare for high-quality capture
-      // Ensure everything is visible and fonts are loaded
-      await new Promise(r => setTimeout(r, 2000));
-      
-      // Use exact 300 DPI A4 Landscape proportions for the highest professional quality
-      const captureWidth = 3508; 
-      const captureHeight = 2480; 
-      
       const dataUrl = await toPng(element, { 
-        cacheBust: true,
-        pixelRatio: 1, 
-        backgroundColor: '#fdfbf7',
-        width: captureWidth,
-        height: captureHeight,
-        style: {
-          transform: 'none',
-          top: '0',
-          left: '0',
-          margin: '0',
-          padding: '0',
-          position: 'fixed',
-          zIndex: '9999',
-          width: `${captureWidth}px`,
-          height: `${captureHeight}px`,
-          maxWidth: 'none',
-          maxHeight: 'none',
-        }
+        quality: 1.0,
+        pixelRatio: 2,
+        backgroundColor: '#ffffff'
       });
       
       const pdf = new jsPDF({
@@ -1316,7 +1435,7 @@ function AdminPanel() {
       pdf.save(`Bhakti_Sastri_Degree_${viewingAdminCertificate.userName?.replace(/\s+/g, '_') || 'Student'}.pdf`);
     } catch (err) {
       console.error("PDF Export failed", err);
-      alert("Professional quality download failed. Please use your browser's Print -> Save as PDF as a high-fidelity alternative.");
+      alert("Download failed. Please use Print as an alternative.");
     } finally {
       setDownloading(false);
     }
@@ -1473,18 +1592,64 @@ function AdminPanel() {
                 <tr>
                   <th className="px-6 py-4">Name</th>
                   <th className="px-6 py-4">Email</th>
+                  <th className="px-6 py-4">Role</th>
                   <th className="px-6 py-4">Created At</th>
-                  <th className="px-6 py-4 text-center">Status</th>
+                  <th className="px-6 py-4 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {users.filter(u => u.role === 'admin').map((admin) => (
                   <tr key={admin.uid} className="hover:bg-gray-50/50 transition-colors text-sm">
-                    <td className="px-6 py-4 font-bold">{admin.displayName}</td>
+                    <td className="px-6 py-4 flex items-center gap-2">
+                       {admin.isSuperAdmin && <ShieldCheck size={14} className="text-purple-600" title="Super Admin" />}
+                       <span className="font-bold">{admin.displayName}</span>
+                    </td>
                     <td className="px-6 py-4">{admin.email}</td>
+                    <td className="px-6 py-4">
+                       <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-tighter ${admin.isSuperAdmin ? 'bg-purple-50 text-purple-600 border border-purple-100' : 'bg-blue-50 text-blue-600 border border-blue-100'}`}>
+                         {admin.isSuperAdmin ? 'Super Admin' : 'Admin'}
+                       </span>
+                    </td>
                     <td className="px-6 py-4 text-gray-400">{new Date(admin.createdAt).toLocaleDateString()}</td>
                     <td className="px-6 py-4 text-center">
-                      <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">Active</span>
+                      <div className="flex items-center justify-center gap-2">
+                        {currentUser.isSuperAdmin && !admin.isSuperAdmin && (
+                          <>
+                            <button 
+                              onClick={async () => {
+                                if (confirm(`Transfer Super Admin power to ${admin.displayName}? You will lose super admin status.`)) {
+                                  try {
+                                    await api.transferSuperPower(currentUser.uid, admin.uid);
+                                    alert("Super Admin power transferred successfully. Please refresh the page.");
+                                    window.location.reload();
+                                  } catch (e) { alert("Transfer failed"); }
+                                }
+                              }}
+                              className="p-1.5 text-purple-500 hover:bg-purple-50 rounded-lg"
+                              title="Make Super Admin"
+                            >
+                              <UserCheck size={18} />
+                            </button>
+                            <button 
+                              onClick={async () => {
+                                if (confirm(`Are you sure you want to remove ${admin.displayName} as admin?`)) {
+                                  try {
+                                    await api.deleteAdmin(currentUser.uid, admin.uid);
+                                    loadData();
+                                  } catch (e) { alert("Deletion failed"); }
+                                }
+                              }}
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"
+                              title="Delete Admin"
+                            >
+                              <UserMinus size={18} />
+                            </button>
+                          </>
+                        )}
+                        {admin.uid === currentUser.uid && (
+                          <span className="text-[10px] text-gray-300 font-bold italic">You</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1813,8 +1978,8 @@ function AdminPanel() {
                 </div>
               </div>
             </div>
-            <div className="p-4 sm:p-12 overflow-y-auto bg-gray-100 flex-1 flex justify-center items-start min-h-[600px] lg:min-h-[800px]">
-              <div className="w-full max-w-[1200px] flex justify-center py-12">
+            <div className="p-4 sm:p-12 overflow-auto bg-gray-100 flex-1 flex flex-col items-center">
+              <div id="admin-cert-capture" className="w-full max-w-[1200px] shadow-2xl">
                 <CertificateView submission={viewingAdminCertificate} overrides={viewingAdminCertificate} />
               </div>
             </div>
@@ -1842,7 +2007,20 @@ function AdminPanel() {
               {gradingSubmission.answers.map((ans, idx) => (
                 <div key={idx} className="bg-orange-50/30 p-6 rounded-2xl border border-orange-100">
                   <div className="text-[10px] font-black text-[#FF9933] uppercase tracking-widest mb-2">Question {idx + 1}</div>
-                  <p className="text-lg font-bold mb-4 italic text-gray-600">"{ans.answer || '(No answer provided)'}"</p>
+                  {typeof ans.answer === 'string' && ans.answer.startsWith('data:image') ? (
+                    <div className="space-y-4">
+                      <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">Uploaded Answer Script:</p>
+                      <img 
+                        src={ans.answer} 
+                        alt={`Answer ${idx + 1}`} 
+                        className="w-full rounded-xl border-4 border-white shadow-xl cursor-zoom-in"
+                        onClick={() => window.open(ans.answer as string, '_blank')}
+                      />
+                      <p className="text-[10px] text-gray-400 italic">Click image to open full size</p>
+                    </div>
+                  ) : (
+                    <p className="text-lg font-bold mb-4 italic text-gray-600">"{ans.answer || '(No answer provided)'}"</p>
+                  )}
                 </div>
               ))}
               
@@ -1922,13 +2100,14 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
   };
 
   const handleDelete = async () => {
+    const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
     if (window.confirm(`Are you sure you want to delete "${exam.title}"? This cannot be undone.`)) {
       try {
-        await api.deleteExam(exam.id);
+        await api.deleteExam(exam.id, currentUser.uid);
         onRefresh();
-      } catch (err) {
+      } catch (err: any) {
         console.error("Delete exam failed", err);
-        alert("Failed to delete exam. Make sure you have administrative privileges.");
+        alert(`Failed to delete exam: ${err.message}`);
       }
     }
   };

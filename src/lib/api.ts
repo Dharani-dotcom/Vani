@@ -9,6 +9,7 @@ export interface UserProfile {
   email?: string;
   displayName: string;
   role: 'admin' | 'devotee';
+  isSuperAdmin?: boolean;
   createdAt: string;
 }
 
@@ -101,8 +102,10 @@ export const api = {
     return res.json();
   },
 
-  async deleteExam(id: string): Promise<void> {
-    await this.fetchWithLog(`/api/exams/${id}`, { method: 'DELETE' });
+  async deleteExam(id: string, adminId: string): Promise<void> {
+    await this.fetchWithLog(`/api/exams/${id}?adminId=${adminId}`, { 
+      method: 'DELETE'
+    });
   },
 
   async getSubmissions(userId?: string): Promise<Submission[]> {
@@ -171,6 +174,20 @@ export const api = {
       })
     });
     return res.json();
+  },
+
+  async deleteAdmin(adminId: string, targetId: string): Promise<void> {
+    await this.fetchWithLog(`/api/admin/${targetId}?adminId=${adminId}`, {
+      method: 'DELETE'
+    });
+  },
+
+  async transferSuperPower(adminId: string, targetAdminId: string): Promise<void> {
+    await this.fetchWithLog('/api/admin/transfer-super', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminId, targetAdminId })
+    });
   }
 };
 

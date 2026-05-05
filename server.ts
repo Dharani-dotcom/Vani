@@ -32,6 +32,7 @@ async function startServer() {
           password: '12345671',
           displayName: 'Super Admin',
           role: 'admin',
+          isSuperAdmin: true,
           createdAt: new Date()
         }
       ],
@@ -54,12 +55,23 @@ async function startServer() {
           password: '12345671',
           displayName: 'Super Admin',
           role: 'admin',
+          isSuperAdmin: true,
           createdAt: new Date()
         });
         fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-      } else if (admin.password !== '12345671') {
-        admin.password = '12345671';
-        fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+      } else {
+        let changed = false;
+        if (admin.password !== '12345671') {
+          admin.password = '12345671';
+          changed = true;
+        }
+        if (!admin.isSuperAdmin) {
+          admin.isSuperAdmin = true;
+          changed = true;
+        }
+        if (changed) {
+          fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+        }
       }
       return data;
     } catch (e) {
@@ -146,6 +158,7 @@ async function startServer() {
       password: newAdminPassword,
       displayName: newAdminName,
       role: 'admin',
+      isSuperAdmin: false,
       createdAt: new Date()
     };
 
@@ -154,6 +167,48 @@ async function startServer() {
     
     const { password: _, ...adminWithoutPassword } = newAdmin;
     res.json(adminWithoutPassword);
+  });
+
+  app.delete("/api/admin/:id", (req, res) => {
+    const adminId = req.query.adminId || req.body.adminId;
+    const data = getData();
+    
+    const requester = data.users.find((u: any) => u.uid === adminId && u.isSuperAdmin);
+    if (!requester) {
+      return res.status(403).json({ error: "Only Super Admin can remove other admins." });
+    }
+
+    const targetIndex = data.users.findIndex((u: any) => u.uid === req.params.id);
+    if (targetIndex === -1) return res.status(404).json({ error: "User not found" });
+
+    // Cannot remove self
+    if (req.params.id === adminId) {
+      return res.status(400).json({ error: "Super Admin cannot remove themselves." });
+    }
+
+    data.users.splice(targetIndex, 1);
+    saveData(data);
+    res.json({ success: true });
+  });
+
+  app.post("/api/admin/transfer-super", (req, res) => {
+    const { adminId, targetAdminId } = req.body;
+    const data = getData();
+    
+    const requester = data.users.find((u: any) => u.uid === adminId && u.isSuperAdmin);
+    if (!requester) {
+      return res.status(403).json({ error: "Only Super Admin can transfer their power." });
+    }
+
+    const targetAdmin = data.users.find((u: any) => u.uid === targetAdminId && u.role === 'admin');
+    if (!targetAdmin) return res.status(404).json({ error: "Target admin not found" });
+
+    // Transfer power
+    requester.isSuperAdmin = false;
+    targetAdmin.isSuperAdmin = true;
+
+    saveData(data);
+    res.json({ success: true });
   });
 
   app.get("/api/health", (req, res) => {
@@ -211,10 +266,32 @@ async function startServer() {
   });
 
   app.delete("/api/exams/:id", (req, res) => {
+    const { id } = req.params;
+    const adminId = req.query.adminId || req.body.adminId;
+    console.log(`[DELETE] Attempting to delete exam: ${id} by admin: ${adminId}`);
     const data = getData();
-    data.exams = data.exams.filter((e: any) => e.id !== req.params.id);
+    
+    // Auth check
+    const requester = data.users.find((u: any) => u.uid === adminId && u.role === 'admin');
+    if (!requester) {
+      console.log(`[DELETE] Unauthorized delete attempt for exam: ${id} by: ${adminId}`);
+      return res.status(403).json({ error: "Unauthorized. Admin access required." });
+    }
+
+    const initialExamCount = data.exams.length;
+    data.exams = data.exams.filter((e: any) => e.id !== id);
+    const finalExamCount = data.exams.length;
+
+    if (initialExamCount === finalExamCount) {
+      console.log(`[DELETE] Exam not found: ${id}`);
+    } else {
+      console.log(`[DELETE] Exam deleted: ${id} by ${adminId}. Also removing related submissions.`);
+      // Clean up related submissions
+      data.submissions = data.submissions.filter((s: any) => s.examId !== id);
+    }
+
     saveData(data);
-    res.sendStatus(200);
+    res.json({ success: true, deleted: initialExamCount !== finalExamCount });
   });
 
   app.get("/api/submissions", (req, res) => {
