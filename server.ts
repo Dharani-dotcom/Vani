@@ -107,6 +107,17 @@ async function startServer() {
       
       return res.status(401).json({ error: "Invalid admin email or password" });
     } else {
+      const data = getData();
+      // Case-insensitive name lookup to help users resume profiles
+      const existingUser = data.users.find((u: any) => 
+        u.displayName && name && u.displayName.toLowerCase() === name.toLowerCase() && u.role === 'devotee'
+      );
+      
+      if (existingUser) {
+        console.log(`Resuming session for existing devotee: ${existingUser.displayName}`);
+        return res.json(existingUser);
+      }
+
       const user = { uid: uuidv4(), displayName: name || 'Devotee', role: 'devotee', createdAt: new Date() };
       data.users.push(user);
       saveData(data);

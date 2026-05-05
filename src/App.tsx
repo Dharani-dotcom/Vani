@@ -10,7 +10,6 @@ import {
   LayoutDashboard, 
   PlusCircle, 
   LogOut, 
-  User as UserIcon,
   ChevronRight,
   Clock,
   Award,
@@ -24,7 +23,10 @@ import {
   Loader2,
   Trophy,
   Search,
-  Trash2
+  Trash2,
+  Mail,
+  Calendar,
+  User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toPng } from 'html-to-image';
@@ -36,7 +38,7 @@ import autoTable from 'jspdf-autotable';
 export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'home' | 'dashboard' | 'exam' | 'admin' | 'results' | 'leaderboard'>('home');
+  const [view, setView] = useState<'home' | 'dashboard' | 'exam' | 'admin' | 'results' | 'leaderboard' | 'profile'>('home');
   const [selectedExamId, setSelectedExamId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -126,12 +128,21 @@ export default function App() {
                   <Award size={20} />
                   <span className="hidden md:inline font-medium">My Results</span>
                 </button>
+                {profile.role === 'admin' && (
+                  <button 
+                    onClick={() => setView('leaderboard')}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${view === 'leaderboard' ? 'bg-[#FF9933] text-white' : 'hover:bg-[#FF9933]/10 text-[#FF9933]'}`}
+                  >
+                    <Trophy size={20} />
+                    <span className="hidden md:inline font-medium">Leaderboard</span>
+                  </button>
+                )}
                 <button 
-                  onClick={() => setView('leaderboard')}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${view === 'leaderboard' ? 'bg-[#FF9933] text-white' : 'hover:bg-[#FF9933]/10 text-[#FF9933]'}`}
+                  onClick={() => setView('profile')}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${view === 'profile' ? 'bg-[#FF9933] text-white' : 'hover:bg-[#FF9933]/10 text-[#FF9933]'}`}
                 >
-                  <Trophy size={20} />
-                  <span className="hidden md:inline font-medium">Leaderboard</span>
+                  <User size={20} />
+                  <span className="hidden md:inline font-medium">Profile</span>
                 </button>
                 <div className="h-8 w-px bg-gray-200 mx-2" />
                 <button 
@@ -181,9 +192,14 @@ export default function App() {
               <ResultsView userId={profile.uid} />
             </motion.div>
           )}
-          {view === 'leaderboard' && (
+          {view === 'leaderboard' && profile?.role === 'admin' && (
             <motion.div key="leaderboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <LeaderboardView />
+            </motion.div>
+          )}
+          {view === 'profile' && profile && (
+            <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <ProfilePage profile={profile} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -193,6 +209,133 @@ export default function App() {
 }
 
 // --- Views ---
+
+function ProfilePage({ profile }: { profile: UserProfile }) {
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSubmissions = async () => {
+      try {
+        const subs = await api.getSubmissions(profile.uid);
+        setSubmissions(subs);
+      } catch (err) {
+        console.error("Failed to fetch user submissions", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSubmissions();
+  }, [profile.uid]);
+
+  const gradedSubmissions = submissions.filter(s => s.status === 'graded');
+  const totalExams = gradedSubmissions.length;
+  const averageScore = totalExams > 0 
+    ? Math.round(gradedSubmissions.reduce((acc, curr) => acc + (curr.totalPoints > 0 ? (curr.score / curr.totalPoints) * 100 : 0), 0) / totalExams)
+    : 0;
+  const certifiedExams = gradedSubmissions.filter(s => s.isCertified).length;
+
+  if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-[#FF9933]" /></div>;
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-5xl mx-auto space-y-8">
+      {/* Header Profile Section */}
+      <div className="bg-white rounded-3xl p-8 shadow-xl border border-gray-100 flex flex-col md:flex-row items-center gap-8 text-center md:text-left">
+        <div className="w-32 h-32 bg-[#FF9933]/10 rounded-full flex items-center justify-center text-[#FF9933] border-4 border-white shadow-lg">
+          <User size={64} strokeWidth={1.5} />
+        </div>
+        <div className="flex-1 space-y-4">
+          <div>
+            <h2 className="text-3xl font-bold text-gray-900">{profile.displayName}</h2>
+            <div className="flex flex-wrap justify-center md:justify-start gap-4 mt-2">
+              <div className="flex items-center gap-2 text-gray-500 font-medium">
+                <Mail size={16} />
+                <span>{profile.email}</span>
+              </div>
+              <div className="flex items-center gap-2 text-gray-500 font-medium">
+                <Calendar size={16} />
+                <span>Joined {new Date(profile.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap justify-center md:justify-start gap-3">
+             <div className="px-4 py-2 bg-orange-50 text-[#FF9933] rounded-xl text-sm font-bold border border-orange-100 uppercase tracking-widest">
+               {profile.role === 'admin' ? 'Paramacharya (Admin)' : 'Sadhaka (Student)'}
+             </div>
+             {certifiedExams > 0 && (
+               <div className="px-4 py-2 bg-yellow-50 text-yellow-700 rounded-xl text-sm font-bold border border-yellow-100 uppercase tracking-widest flex items-center gap-2">
+                 <Award size={16} />
+                 {certifiedExams} Certificates Earned
+               </div>
+             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center space-y-2">
+          <p className="text-sm font-bold text-gray-400 uppercase tracking-[0.2em]">Exams Attempted</p>
+          <div className="text-4xl font-black text-gray-900">{totalExams}</div>
+          <div className="text-xs text-gray-400">Total spiritual evaluations</div>
+        </div>
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center space-y-2">
+          <p className="text-sm font-bold text-gray-400 uppercase tracking-[0.2em]">Average Score</p>
+          <div className="text-4xl font-black text-[#FF9933]">{averageScore}%</div>
+          <div className="text-xs text-gray-400">Cumulative performance</div>
+        </div>
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center space-y-2">
+          <p className="text-sm font-bold text-gray-400 uppercase tracking-[0.2em]">Certifications</p>
+          <div className="text-4xl font-black text-green-600">{certifiedExams}</div>
+          <div className="text-xs text-gray-400">Successfully mastered</div>
+        </div>
+      </div>
+
+      {/* Recent Activity */}
+      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-6 border-b border-gray-50 flex items-center justify-between">
+          <h3 className="text-xl font-bold flex items-center gap-2">
+            <Trophy size={20} className="text-[#FF9933]" />
+            Learning Journey
+          </h3>
+          <span className="text-sm text-gray-400 font-medium">{submissions.length} total activities</span>
+        </div>
+        <div className="divide-y divide-gray-50">
+          {submissions.length > 0 ? (
+            submissions.sort((a, b) => b.completedAt - a.completedAt).map((s, idx) => {
+              const perc = s.totalPoints > 0 ? (s.score / s.totalPoints) * 100 : 0;
+              return (
+                <div key={s.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-gray-50 transition-colors">
+                  <div className="space-y-1">
+                    <h4 className="font-bold text-lg">{s.examTitle}</h4>
+                    <p className="text-sm text-gray-400">Completed on {new Date(s.completedAt).toLocaleDateString()}</p>
+                  </div>
+                  <div className="flex items-center gap-6">
+                    <div className="text-right">
+                       <div className="text-sm font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Result</div>
+                       <div className={`font-mono font-bold text-lg ${perc >= 80 ? 'text-green-600' : perc >= 50 ? 'text-[#FF9933]' : 'text-red-500'}`}>
+                         {s.status === 'graded' ? `${Math.round(perc)}%` : 'Pending'}
+                       </div>
+                    </div>
+                    {s.isCertified && (
+                      <div className="p-2 bg-yellow-50 rounded-xl text-yellow-600" title="Certified">
+                        <Award size={24} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="p-12 text-center text-gray-400 italic">
+              Your spiritual journey has just begun. Complete your first exam to see history here!
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
 
 function LeaderboardView() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
@@ -475,6 +618,7 @@ function HomeView({ onLoginSuccess }: { onLoginSuccess: (u: UserProfile) => void
               {authLoading ? <Loader2 className="animate-spin" /> : "Enter Exam Hall"}
               {!authLoading && <ChevronRight size={22} />}
             </button>
+            <p className="text-xs text-gray-400 font-medium">Use the same name to resume your profile & results</p>
           </form>
         </div>
       ) : (
