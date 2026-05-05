@@ -23,7 +23,8 @@ import {
   AlertCircle,
   Loader2,
   Trophy,
-  Search
+  Search,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toPng } from 'html-to-image';
@@ -1776,19 +1777,40 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
     } catch (err) { console.error("Add question failed", err); }
   };
 
+  const handleDelete = async () => {
+    if (window.confirm(`Are you sure you want to delete "${exam.title}"? This cannot be undone.`)) {
+      try {
+        await api.deleteExam(exam.id);
+        onRefresh();
+      } catch (err) {
+        console.error("Delete exam failed", err);
+        alert("Failed to delete exam. Make sure you have administrative privileges.");
+      }
+    }
+  };
+
   return (
     <div className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
       <div className="p-6 flex items-center justify-between">
-        <div>
+        <div className="flex-1">
           <h4 className="text-xl font-bold">{exam.title}</h4>
           <p className="text-sm text-gray-500">{exam.bookTitle} • {exam.totalPoints} Marks</p>
         </div>
-        <button 
-          onClick={() => setExpanded(!expanded)}
-          className="p-3 hover:bg-gray-50 rounded-2xl transition-all"
-        >
-          {expanded ? <CheckCircle2 className="text-[#FF9933]" /> : <ChevronRight />}
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={handleDelete}
+            className="p-3 hover:bg-red-50 text-red-500 rounded-2xl transition-all"
+            title="Delete Exam"
+          >
+            <Trash2 size={20} />
+          </button>
+          <button 
+            onClick={() => setExpanded(!expanded)}
+            className="p-3 hover:bg-gray-50 rounded-2xl transition-all"
+          >
+            {expanded ? <CheckCircle2 className="text-[#FF9933]" /> : <ChevronRight />}
+          </button>
+        </div>
       </div>
 
       <AnimatePresence>
