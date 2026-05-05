@@ -41,10 +41,11 @@ async function startServer() {
 
   // Logging middleware
   app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - NODE_ENV=${process.env.NODE_ENV}`);
     next();
   });
 
+  console.log("Registering API routes...");
   // API Routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", time: new Date(), version: "1.0.1" });
@@ -55,6 +56,7 @@ async function startServer() {
   });
 
   app.post("/api/login", (req, res) => {
+    console.log("POST /api/login reached");
     const { email, password, name, type } = req.body;
     console.log(`Login attempt: ${type}`, { email, name });
     const data = getData();
@@ -156,6 +158,12 @@ async function startServer() {
 
   app.get("/api/users", (req, res) => {
     res.json(getData().users || []);
+  });
+
+  // Catch-all for API to debug missing routes
+  app.all("/api/*", (req, res) => {
+    console.log(`Unmatched API route: ${req.method} ${req.path}`);
+    res.status(404).json({ error: "API route not found" });
   });
 
   // Vite middleware
