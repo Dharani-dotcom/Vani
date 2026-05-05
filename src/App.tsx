@@ -14,6 +14,9 @@ import {
   ChevronRight,
   Clock,
   Award,
+  Star,
+  FileText,
+  Printer,
   CheckCircle2,
   XCircle,
   AlertCircle,
@@ -426,7 +429,6 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
   const nextQuestion = () => {
     if (currentIndex < questions.length - 1) {
       setCurrentIndex(currentIndex + 1);
-      setShowExplanation(false);
     } else {
       submitExam();
     }
@@ -446,7 +448,7 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
         examId,
         examTitle: exam?.title || 'Unknown Exam',
         score: 0, // Server will calculate for MCQs
-        totalMarks: questions.length,
+        totalPoints: questions.reduce((acc, q) => acc + (q.points || 1), 0),
         status: exam?.type === 'mcq' ? 'graded' : 'pending',
         answers: submissionAnswers,
       };
@@ -497,6 +499,9 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
 
         <div className="p-8">
           <h3 className="text-2xl font-bold mb-8 leading-tight">{currentQuestion.questionText}</h3>
+          <div className="flex items-center gap-2 mb-4 text-[#FF9933] font-bold text-sm tracking-wider uppercase">
+             <Star size={16} /> {currentQuestion.points || 1} Marks
+          </div>
           
           <div className="space-y-4 mb-10">
             {currentQuestion.type === 'mcq' && currentQuestion.options ? (
@@ -547,18 +552,10 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
           </AnimatePresence>
 
           <div className="flex gap-4">
-            {!showExplanation && answers[currentIndex] !== -1 && !isGrading && (
-              <button 
-                onClick={() => setShowExplanation(true)}
-                className="flex-1 py-4 px-6 border-2 border-blue-200 text-blue-600 rounded-2xl font-bold hover:bg-blue-50 transition-colors"
-              >
-                Explain Answer
-              </button>
-            )}
             <button 
               onClick={nextQuestion}
               disabled={answers[currentIndex] === -1 || isSubmitting}
-              className="flex-[2] bg-[#FF9933] text-white py-4 px-6 rounded-2xl font-bold shadow-lg shadow-[#FF9933]/30 disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
+              className="w-full bg-[#FF9933] text-white py-4 px-6 rounded-2xl font-bold shadow-lg shadow-[#FF9933]/30 disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
                 <div className="flex items-center gap-2">
@@ -644,7 +641,7 @@ function ResultsView({ userId }: { userId: string }) {
       ) : (
         <div className="grid gap-4">
           {submissions.map((s) => {
-            const percentage = Math.round((s.score / s.total) * 100);
+            const percentage = s.totalPoints > 0 ? Math.round((s.score / s.totalPoints) * 100) : 0;
             const isExpanded = viewingDetailId === s.id;
             const passed = percentage >= 80;
             const certified = s.isCertified;
@@ -664,7 +661,7 @@ function ResultsView({ userId }: { userId: string }) {
                       </span>
                       <span className="flex items-center gap-1">
                         <LayoutDashboard size={16} />
-                        {s.totalMarks} Questions
+                        {s.totalPoints} Questions
                       </span>
                       {s.status === 'pending' && (
                         <span className="flex items-center gap-1 text-blue-500 font-bold">
@@ -697,7 +694,7 @@ function ResultsView({ userId }: { userId: string }) {
                     ) : (
                       <>
                         <div className="text-center min-w-[60px]">
-                          <div className="text-2xl font-bold text-[#FF9933]">{s.score}/{s.totalMarks}</div>
+                          <div className="text-2xl font-bold text-[#FF9933]">{s.score}/{s.totalPoints}</div>
                           <div className="text-xs text-gray-400 font-bold uppercase tracking-wider">Score</div>
                         </div>
                         <div className={`w-16 h-16 rounded-full border-4 flex items-center justify-center font-bold text-lg
@@ -757,75 +754,82 @@ function ResultsView({ userId }: { userId: string }) {
 }
 
 function CertificateView({ submission }: { submission: Submission }) {
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-
-  useEffect(() => {
-    api.getUsers().then(users => {
-      const u = users.find(user => user.uid === submission.userId);
-      if (u) setUserProfile(u);
-    });
-  }, [submission.userId]);
-
+  const percentage = submission.totalPoints > 0 ? Math.round((submission.score / submission.totalPoints) * 100) : 0;
+  
   return (
-    <div className="bg-white aspect-[1.414/1] w-full p-12 border-[12px] border-double border-[#FF9933] shadow-inner relative overflow-hidden flex flex-col items-center justify-center text-center certificate-content">
-      {/* Decorative Ornaments */}
-      <div className="absolute top-0 left-0 w-32 h-32 border-l-8 border-t-8 border-[#FF9933]/20" />
-      <div className="absolute top-0 right-0 w-32 h-32 border-r-8 border-t-8 border-[#FF9933]/20" />
-      <div className="absolute bottom-0 left-0 w-32 h-32 border-l-8 border-b-8 border-[#FF9933]/20" />
-      <div className="absolute bottom-0 right-0 w-32 h-32 border-r-8 border-b-8 border-[#FF9933]/20" />
+    <div className="bg-white p-16 shadow-2xl relative overflow-hidden border-[16px] border-[#FF9933]/10 print:shadow-none print:border-[#FF9933] print:p-8 certificate-content" id="certificate-content">
+      {/* Background Ornament */}
+      <div className="absolute top-0 right-0 w-64 h-64 bg-[#FF9933]/5 rounded-full -mr-32 -mt-32 blur-3xl" />
+      <div className="absolute bottom-0 left-0 w-64 h-64 bg-[#FF9933]/5 rounded-full -ml-32 -mb-32 blur-3xl" />
       
-      <div className="mb-6">
-        <Award size={64} className="text-[#FF9933] mx-auto opacity-80" />
-      </div>
-      
-      <h1 className="text-3xl font-serif font-black tracking-[0.2em] text-[#FF9933] uppercase mb-2">Certificate of Completion</h1>
-      <p className="text-gray-400 italic mb-10">This certifies that the devotee</p>
-      
-      <h2 className="text-5xl font-serif font-bold text-[#2D2D2D] border-b-2 border-[#FF9933]/30 px-12 py-2 mb-10 min-w-[300px]">
-        {userProfile?.displayName || 'Loading...'}
-      </h2>
-      
-      <p className="text-lg text-gray-600 max-w-lg mb-12">
-        has successfully completed the realization exam on <br />
-        <span className="font-bold text-[#2D2D2D]">"{submission.examTitle}"</span> <br />
-        demonstrating deep understanding of the instructions given by <br />
-        <span className="font-bold text-[#FF9933]">His Divine Grace A.C. Bhaktivedanta Swami Prabhupada</span>
-      </p>
-      
-      <div className="grid grid-cols-2 w-full max-w-xl items-end mt-4">
-        <div className="flex flex-col items-center">
-          <div className="w-40 border-b border-gray-300 mb-2 font-handwriting text-2xl text-gray-400">
-             {new Date(submission.completedAt).toLocaleDateString()}
+      <div className="relative border-4 border-[#FF9933]/20 p-12 flex flex-col items-center text-center">
+        {/* Logo Section */}
+        <div className="mb-8 flex flex-col items-center">
+          <div className="w-24 h-24 bg-[#FF9933] rounded-3xl rotate-45 flex items-center justify-center text-white mb-8 shadow-xl shadow-[#FF9933]/30">
+             <div className="-rotate-45 font-black text-3xl">ISKM</div>
           </div>
-          <span className="text-[10px] uppercase font-bold tracking-widest text-gray-400">Date</span>
+          <h1 className="text-4xl font-black text-[#2D2D2D] tracking-tighter uppercase mb-1">International Sri Krishna Mandir</h1>
+          <p className="text-[#FF9933] font-bold tracking-[0.3em] text-xs uppercase underline decoration-2 underline-offset-4 decoration-[#FF9933]/20">Bhaktivedanta Academy of Education</p>
         </div>
+
+        <div className="mb-10">
+          <h2 className="text-6xl font-serif italic text-gray-800 mb-2">Certificate of Achievement</h2>
+          <div className="h-1.5 w-64 bg-gradient-to-r from-transparent via-[#FF9933] to-transparent mx-auto rounded-full" />
+        </div>
+
+        <p className="text-xl text-gray-500 mb-6 font-medium italic">This is to certify that</p>
         
-        <div className="flex flex-col items-center">
-          <div className="w-40 border-b border-gray-300 mb-2 italic text-[#FF9933] font-serif text-xl">
-             Bhaktivedanta Admin
+        <h3 className="text-5xl font-bold text-[#2D2D2D] mb-10 pb-2 border-b-2 border-gray-100 min-w-[400px]">
+          {submission.userName}
+        </h3>
+
+        <p className="max-w-xl mx-auto text-gray-500 leading-relaxed text-lg mb-12">
+          has successfully demonstrated exceptional proficiency in the examination on <br/>
+          <span className="font-bold text-[#2D2D2D] text-2xl group block mt-2">"{submission.examTitle}"</span> <br/>
+          achieving a grade of <span className="text-[#FF9933] font-black">{percentage}%</span> and gaining deep spiritual realizations 
+          according to the teachings of <span className="font-bold text-gray-700 italic">Srila Prabhupada</span>.
+        </p>
+
+        <div className="grid grid-cols-2 gap-20 w-full max-w-2xl items-end mt-12 bg-gray-50/50 p-8 rounded-3xl">
+          <div className="text-center">
+            <div className="h-px bg-gray-300 w-full mb-4" />
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Date Issued</p>
+            <p className="font-bold text-gray-800 text-lg">{new Date(submission.completedAt).toLocaleDateString()}</p>
           </div>
-          <span className="text-[10px] uppercase font-bold tracking-widest text-[#FF9933]">Validated & Signed</span>
+          <div className="text-center relative">
+             {/* Signature Mock */}
+            <div className="absolute -top-16 left-1/2 -translate-x-1/2 w-48 h-20 opacity-80 pointer-events-none select-none">
+               <div className="font-serif italic text-4xl text-[#1A1A1A] skew-x-[-15deg] opacity-60">Admin Authority</div>
+            </div>
+            <div className="h-px bg-gray-300 w-full mb-4" />
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Administrative Head</p>
+            <p className="font-bold text-[#FF9933] text-lg">Srila Prabhupada's Servants</p>
+          </div>
+        </div>
+
+        <div className="mt-12 text-[9px] text-gray-300 font-mono tracking-widest uppercase flex items-center gap-4">
+          <span>Auth ID: {submission.id.split('-')[0].toUpperCase()}</span>
+          <div className="w-1 h-1 bg-gray-300 rounded-full" />
+          <span>Blockchain Verified Certificate</span>
         </div>
       </div>
 
-      <div className="absolute bottom-6 text-[8px] text-gray-300 font-mono">
-        Verification ID: {submission.id.toUpperCase()}
-      </div>
-      
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
-          body * { visibility: hidden; background: white !important; }
+          body * { visibility: hidden; }
           .certificate-content, .certificate-content * { visibility: visible !important; }
           .certificate-content { 
-            position: absolute; 
-            left: 0; 
-            top: 0; 
-            width: 100% !important; 
+            position: fixed !important; 
+            left: 0 !important; 
+            top: 0 !important; 
+            width: 100vw !important; 
             height: 100vh !important; 
             margin: 0 !important;
-            padding: 40px !important;
-            border-width: 20px !important;
+            padding: 2cm !important;
+            border-width: 25px !important;
             box-shadow: none !important;
+            z-index: 9999 !important;
+            background: white !important;
           }
           .no-print { display: none !important; }
         }
@@ -856,6 +860,7 @@ function AdminPanel() {
   const [gradingSubmission, setGradingSubmission] = useState<Submission | null>(null);
   const [manualGrade, setManualGrade] = useState({ score: 0, feedback: '' });
   const [gradingLoading, setGradingLoading] = useState(false);
+  const [viewingAdminCertificate, setViewingAdminCertificate] = useState<Submission | null>(null);
 
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
@@ -886,7 +891,7 @@ function AdminPanel() {
         durationMinutes: newExam.durationMinutes || 30,
         type: (newExam.type as 'mcq' | 'descriptive') || 'mcq',
         creatorId: currentUser.uid,
-        totalQuestions: 0,
+        totalPoints: 0,
       };
       await api.createExam(examData);
       setShowAddExam(false);
@@ -1107,8 +1112,10 @@ function AdminPanel() {
               <tbody className="divide-y divide-gray-50">
                 {allSubmissions.map((s) => {
                   const student = users.find(u => u.uid === s.userId);
-                  const canCertify = (s.score / s.totalMarks) >= 0.8 && s.status === 'graded';
+                  const percentage = s.totalPoints > 0 ? (s.score / s.totalPoints) : 0;
+                  const canCertify = percentage >= 0.8 && s.status === 'graded';
                   const needsGrading = s.status === 'pending';
+                  const isCertified = s.isCertified;
                   
                   return (
                     <tr key={s.id} className="hover:bg-gray-50/50 transition-colors text-sm">
@@ -1122,39 +1129,55 @@ function AdminPanel() {
                       </td>
                       <td className="px-6 py-4 text-center">
                         <div className={`font-bold ${needsGrading ? 'text-gray-300' : canCertify ? 'text-green-600' : 'text-[#FF9933]'}`}>
-                          {needsGrading ? 'Pending' : `${s.score}/${s.totalMarks}`}
+                          {needsGrading ? 'Pending' : `${s.score}/${s.totalPoints}`}
                         </div>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        {needsGrading ? (
-                          <button 
-                            onClick={() => {
-                              setGradingSubmission(s);
-                              setManualGrade({ score: 0, feedback: '' });
-                            }}
-                            className="bg-blue-600 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider hover:bg-blue-700 transition-colors"
-                          >
-                            Grade Now
-                          </button>
-                        ) : s.isCertified ? (
-                          <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1">
-                            <CheckCircle2 size={12} /> Certified
-                          </span>
-                        ) : canCertify ? (
-                          <button 
-                            onClick={async () => {
-                              try {
-                                await api.certifySubmission(s.id);
-                                loadData();
-                              } catch (e) { console.error("Sign failed", e); }
-                            }}
-                            className="text-[10px] bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold hover:bg-blue-600 hover:text-white transition-all uppercase tracking-wider"
-                          >
-                            Sign Certificate
-                          </button>
-                        ) : (
-                          <span className="text-gray-300 text-[10px] uppercase tracking-wider">Ineligible</span>
-                        )}
+                        <div className="flex justify-center gap-2 items-center">
+                          {needsGrading ? (
+                            <button 
+                              onClick={() => {
+                                setGradingSubmission(s);
+                                setManualGrade({ score: 0, feedback: '' });
+                              }}
+                              className="bg-blue-600 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider hover:bg-blue-700 transition-colors"
+                            >
+                              Grade Now
+                            </button>
+                          ) : (
+                            <>
+                              {isCertified ? (
+                                <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1">
+                                  <CheckCircle2 size={12} /> Signed
+                                </span>
+                              ) : canCertify ? (
+                                <button 
+                                  onClick={async () => {
+                                    try {
+                                      await api.certifySubmission(s.id);
+                                      loadData();
+                                    } catch (e) { console.error("Sign failed", e); }
+                                  }}
+                                  className="text-[10px] bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold hover:bg-blue-600 hover:text-white transition-all uppercase tracking-wider"
+                                >
+                                  Sign Certificate
+                                </button>
+                              ) : (
+                                <span className="text-gray-300 text-[10px] uppercase tracking-wider">Ineligible</span>
+                              )}
+                              
+                              {isCertified && (
+                                <button 
+                                  onClick={() => setViewingAdminCertificate(s)}
+                                  className="p-1.5 bg-gray-100 text-gray-400 rounded-lg hover:bg-[#FF9933]/10 hover:text-[#FF9933] transition-colors"
+                                  title="View/Print PDF Certificate"
+                                >
+                                  <FileText size={16} />
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-400">
                         {new Date(s.completedAt).toLocaleDateString()}
@@ -1169,6 +1192,68 @@ function AdminPanel() {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Certificate Preview */}
+      {viewingAdminCertificate && (
+        <div className="fixed inset-0 z-[200] bg-black/80 flex items-center justify-center p-4">
+          <div className="w-full max-w-6xl max-h-[95vh] overflow-hidden bg-white rounded-3xl flex flex-col shadow-2xl">
+            <div className="p-6 bg-gray-50 border-b border-gray-100 flex flex-wrap justify-between items-center gap-4 no-print">
+              <div className="flex items-center gap-6">
+                <div>
+                  <h3 className="text-xl font-bold">Certificate Editor</h3>
+                  <p className="text-xs text-gray-500">Edit details below to customize the certificate before printing.</p>
+                </div>
+                <div className="flex gap-3">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Student Name</span>
+                    <input 
+                      className="text-sm p-1 border-b border-gray-300 focus:border-[#FF9933] outline-none" 
+                      value={viewingAdminCertificate.userName || ''} 
+                      onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, userName: e.target.value})}
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Exam Title</span>
+                    <input 
+                      className="text-sm p-1 border-b border-gray-300 focus:border-[#FF9933] outline-none" 
+                      value={viewingAdminCertificate.examTitle || ''} 
+                      onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, examTitle: e.target.value})}
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Final Score</span>
+                    <input 
+                      type="number"
+                      className="text-sm p-1 border-b border-gray-300 focus:border-[#FF9933] outline-none w-16" 
+                      value={viewingAdminCertificate.score} 
+                      onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, score: parseFloat(e.target.value)})}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                 <button 
+                  onClick={() => window.print()}
+                  className="bg-[#FF9933] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-[#FF9933]/20 hover:scale-105 transition-transform"
+                >
+                  <Printer size={20} /> Print / Save PDF
+                </button>
+                <button 
+                  onClick={() => setViewingAdminCertificate(null)}
+                  className="bg-white border border-gray-200 text-gray-500 p-3 rounded-xl hover:bg-gray-50 transition-colors"
+                >
+                  <XCircle size={24} />
+                </button>
+              </div>
+            </div>
+            <div className="p-12 overflow-y-auto bg-gray-100 flex-1">
+              <div className="max-w-4xl mx-auto origin-top scale-90 md:scale-100">
+                <CertificateView submission={viewingAdminCertificate} />
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1200,11 +1285,11 @@ function AdminPanel() {
               <form onSubmit={handleManualGrade} className="space-y-4 pt-4 border-t border-gray-100">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-bold mb-1">Score (Out of {gradingSubmission.totalMarks})</label>
+                    <label className="block text-sm font-bold mb-1">Score (Out of {gradingSubmission.totalPoints})</label>
                     <input 
                       type="number" 
                       step="0.5" 
-                      max={gradingSubmission.totalMarks} 
+                      max={gradingSubmission.totalPoints} 
                       min={0}
                       required 
                       value={manualGrade.score} 
@@ -1239,7 +1324,7 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
   const [questions, setQuestions] = useState<Question[]>([]);
   const [showAddQ, setShowAddQ] = useState(false);
   const [newQ, setNewQ] = useState<Partial<Question>>({
-    type: 'mcq', questionText: '', options: ['', '', '', ''], correctOptionIndex: 0, explanation: '', idealAnswer: ''
+    type: 'mcq', questionText: '', points: 1, options: ['', '', '', ''], correctOptionIndex: 0, explanation: '', idealAnswer: ''
   });
 
   const loadQuestions = async () => {
@@ -1257,6 +1342,7 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
       const qData: Omit<Question, 'id'> = {
         type: newQ.type || 'mcq',
         questionText: newQ.questionText || '',
+        points: Number(newQ.points) || 1,
         options: newQ.options,
         correctOptionIndex: newQ.correctOptionIndex,
         explanation: newQ.explanation || '',
@@ -1265,7 +1351,7 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
       };
       await api.createQuestion(exam.id, qData);
       setShowAddQ(false);
-      setNewQ({ type: 'mcq', questionText: '', options: ['', '', '', ''], correctOptionIndex: 0, explanation: '', idealAnswer: '' });
+      setNewQ({ type: 'mcq', questionText: '', points: 1, options: ['', '', '', ''], correctOptionIndex: 0, explanation: '', idealAnswer: '' });
       loadQuestions();
       onRefresh();
     } catch (err) { console.error("Add question failed", err); }
@@ -1276,7 +1362,7 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
       <div className="p-6 flex items-center justify-between">
         <div>
           <h4 className="text-xl font-bold">{exam.title}</h4>
-          <p className="text-sm text-gray-500">{exam.bookTitle} • {exam.totalQuestions} Questions</p>
+          <p className="text-sm text-gray-500">{exam.bookTitle} • {exam.totalPoints} Marks</p>
         </div>
         <button 
           onClick={() => setExpanded(!expanded)}
@@ -1301,7 +1387,7 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
 
             {showAddQ && (
                <form onSubmit={handleAddQuestion} className="bg-white p-6 rounded-2xl shadow-sm border border-[#FF9933]/20 mb-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold mb-1">Question Type</label>
                     <select 
@@ -1314,9 +1400,21 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-bold mb-1">Question Text</label>
-                    <input required value={newQ.questionText} onChange={e => setNewQ({...newQ, questionText: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200" />
+                    <label className="block text-sm font-bold mb-2">Marks / Points</label>
+                    <input 
+                      type="number" 
+                      required 
+                      min={1} 
+                      max={100} 
+                      value={newQ.points} 
+                      onChange={e => setNewQ({...newQ, points: parseInt(e.target.value)})} 
+                      className="w-32 p-3 rounded-xl border-2 border-orange-100 focus:border-[#FF9933] outline-none font-bold" 
+                    />
                   </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold mb-1">Question Text</label>
+                  <input required value={newQ.questionText} onChange={e => setNewQ({...newQ, questionText: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200" />
                 </div>
 
                 {newQ.type === 'mcq' ? (

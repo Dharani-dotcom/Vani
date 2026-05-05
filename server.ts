@@ -158,13 +158,16 @@ async function startServer() {
   });
 
   app.post("/api/exams", (req, res) => {
+    const questions = req.body.questions || [];
+    const totalPoints = questions.reduce((acc: number, q: any) => acc + (q.points || 1), 0);
+    
     const exam = { 
       ...req.body, 
       id: uuidv4(), 
       type: req.body.type || 'mcq', // 'mcq' or 'descriptive'
-      questions: req.body.questions || [], 
+      questions: questions, 
       createdAt: new Date(),
-      totalQuestions: req.body.questions?.length || 0
+      totalPoints: totalPoints
     };
     const data = getData();
     data.exams.push(exam);
@@ -176,10 +179,13 @@ async function startServer() {
     const data = getData();
     const examIndex = data.exams.findIndex((e: any) => e.id === req.params.id);
     if (examIndex !== -1) {
-      const question = { ...req.body, id: uuidv4() };
+      const question = { ...req.body, id: uuidv4(), points: req.body.points || 1 };
       if (!data.exams[examIndex].questions) data.exams[examIndex].questions = [];
       data.exams[examIndex].questions.push(question);
-      data.exams[examIndex].totalQuestions = data.exams[examIndex].questions.length;
+      
+      // Recalculate total points
+      data.exams[examIndex].totalPoints = data.exams[examIndex].questions.reduce((acc: number, q: any) => acc + (q.points || 1), 0);
+      
       saveData(data);
       res.json(question);
     } else {
@@ -213,15 +219,15 @@ async function startServer() {
     }
 
     let score = 0;
-    let totalMarks = exam.questions.length;
+    const totalPoints = exam.questions.reduce((acc: number, q: any) => acc + (q.points || 1), 0);
     let status = exam.type === 'mcq' ? 'graded' : 'pending';
 
     // Auto-grade MCQs
     if (exam.type === 'mcq' && req.body.answers) {
       req.body.answers.forEach((ans: any) => {
         const question = exam.questions.find((q: any) => q.id === ans.questionId);
-        if (question && question.correctAnswer === ans.answer) {
-          score += 1;
+        if (question && question.correctOptionIndex === ans.answer) {
+          score += (question.points || 1);
         }
       });
     }
@@ -231,7 +237,7 @@ async function startServer() {
       id: uuidv4(), 
       status,
       score: exam.type === 'mcq' ? score : 0,
-      totalMarks,
+      totalPoints,
       completedAt: new Date() 
     };
     

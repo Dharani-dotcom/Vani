@@ -18,7 +18,7 @@ export interface Exam {
   description: string;
   bookTitle: string;
   durationMinutes: number;
-  totalQuestions: number;
+  totalPoints: number;
   type: 'mcq' | 'descriptive';
   creatorId: string;
   createdAt: string;
@@ -32,7 +32,7 @@ export interface Submission {
   examId: string;
   examTitle: string;
   score: number;
-  totalMarks: number;
+  totalPoints: number;
   status: 'pending' | 'graded';
   feedback?: string;
   answers: { questionId: string; answer: string | number }[];
@@ -44,6 +44,7 @@ export interface Question {
   id: string;
   type: 'mcq' | 'descriptive';
   questionText: string;
+  points: number;
   options?: string[];
   correctOptionIndex?: number;
   idealAnswer?: string;
