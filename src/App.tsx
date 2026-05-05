@@ -17,19 +17,25 @@ import {
   Star,
   FileText,
   Printer,
+  Download,
   CheckCircle2,
   XCircle,
   AlertCircle,
-  Loader2
+  Loader2,
+  Trophy,
+  Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { toPng } from 'html-to-image';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 // --- Components ---
 
 export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'home' | 'dashboard' | 'exam' | 'admin' | 'results'>('home');
+  const [view, setView] = useState<'home' | 'dashboard' | 'exam' | 'admin' | 'results' | 'leaderboard'>('home');
   const [selectedExamId, setSelectedExamId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -119,6 +125,13 @@ export default function App() {
                   <Award size={20} />
                   <span className="hidden md:inline font-medium">My Results</span>
                 </button>
+                <button 
+                  onClick={() => setView('leaderboard')}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${view === 'leaderboard' ? 'bg-[#FF9933] text-white' : 'hover:bg-[#FF9933]/10 text-[#FF9933]'}`}
+                >
+                  <Trophy size={20} />
+                  <span className="hidden md:inline font-medium">Leaderboard</span>
+                </button>
                 <div className="h-8 w-px bg-gray-200 mx-2" />
                 <button 
                   onClick={logout}
@@ -167,6 +180,11 @@ export default function App() {
               <ResultsView userId={profile.uid} />
             </motion.div>
           )}
+          {view === 'leaderboard' && (
+            <motion.div key="leaderboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <LeaderboardView />
+            </motion.div>
+          )}
         </AnimatePresence>
       </main>
     </div>
@@ -174,6 +192,198 @@ export default function App() {
 }
 
 // --- Views ---
+
+function LeaderboardView() {
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [exams, setExams] = useState<Exam[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const [selectedExamId, setSelectedExamId] = useState<string>('all');
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [subs, exList] = await Promise.all([
+          api.getSubmissions(),
+          api.getExams()
+        ]);
+        setSubmissions(subs.filter(s => s.status === 'graded'));
+        setExams(exList);
+      } catch (err) {
+        console.error("Leaderboard data fetch failed", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const filteredSubmissions = selectedExamId === 'all' 
+    ? submissions 
+    : submissions.filter(s => s.examId === selectedExamId);
+
+  const leaderboardData = filteredSubmissions
+    .map(s => ({
+      ...s,
+      percentage: s.totalPoints > 0 ? (s.score / s.totalPoints) * 100 : 0
+    }))
+    .sort((a, b) => b.percentage - a.percentage || b.score - a.score)
+    .slice(0, 50);
+
+  const downloadPDF = () => {
+    try {
+      setDownloading(true);
+      const doc = new jsPDF();
+      const examTitle = selectedExamId === 'all' ? 'Global Ranking' : exams.find(e => e.id === selectedExamId)?.title || 'Leaderboard';
+      
+      // Header
+      doc.setFontSize(22);
+      doc.setTextColor(255, 153, 51); // #FF9933
+      doc.text("Transcendental Leaderboard", 14, 22);
+      
+      doc.setFontSize(14);
+      doc.setTextColor(100);
+      doc.text(examTitle, 14, 30);
+      
+      doc.setFontSize(10);
+      doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 35);
+
+      const tableData = leaderboardData.map((s, idx) => [
+        idx + 1,
+        s.userName,
+        s.examTitle,
+        `${s.score} / ${s.totalPoints}`,
+        `${Math.round(s.percentage)}%`
+      ]);
+
+      autoTable(doc, {
+        startY: 40,
+        head: [['Rank', 'Devotee', 'Exam', 'Score', 'Result']],
+        body: tableData,
+        headStyles: { fillColor: [255, 153, 51] },
+        alternateRowStyles: { fillColor: [255, 245, 230] },
+        styles: { font: 'helvetica', fontSize: 10 },
+      });
+
+      doc.save(`Leaderboard_${examTitle.replace(/\s+/g, '_')}.pdf`);
+    } catch (err) {
+      console.error("Leaderboard PDF export failed", err);
+      alert("Failed to download leaderboard PDF.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-[#FF9933]" /></div>;
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+      <div className="text-center max-w-2xl mx-auto">
+        <div className="inline-flex p-3 bg-yellow-50 rounded-2xl mb-4 text-[#FF9933]">
+          <Trophy size={32} />
+        </div>
+        <h2 className="text-4xl font-bold mb-2">Transcendental Leaderboard</h2>
+        <p className="text-gray-500">Recognizing the top performers in their pursuit of spiritual knowledge.</p>
+      </div>
+
+      <div className="flex flex-col md:flex-row items-center justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <label className="text-sm font-bold text-gray-400 uppercase tracking-widest min-w-fit">Select Exam:</label>
+          <select 
+            value={selectedExamId}
+            onChange={(e) => setSelectedExamId(e.target.value)}
+            className="flex-1 md:w-64 p-2 rounded-xl border border-gray-100 outline-none focus:ring-2 ring-orange-100 transition-all font-medium"
+          >
+            <option value="all">Global Ranking (All Exams)</option>
+            {exams.map(ex => (
+              <option key={ex.id} value={ex.id}>{ex.title}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={downloadPDF}
+            disabled={downloading || leaderboardData.length === 0}
+            className="flex items-center gap-2 bg-[#FF9933] text-white px-4 py-2 rounded-xl font-bold hover:bg-orange-600 transition-colors shadow-lg shadow-orange-100 disabled:opacity-50"
+          >
+            {downloading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+            Download PDF
+          </button>
+          <div className="hidden sm:block text-sm text-gray-400 font-medium">
+            Showing top {leaderboardData.length}
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100">
+                <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-[0.2em]">Rank</th>
+                <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-[0.2em]">Devotee</th>
+                <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-[0.2em]">Exam</th>
+                <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-[0.2em]">Score</th>
+                <th className="px-8 py-5 text-xs font-black text-gray-400 uppercase tracking-[0.2em] text-right">Result</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {leaderboardData.map((s, idx) => {
+                const isTop3 = idx < 3;
+                return (
+                  <motion.tr 
+                    key={s.id}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    className={`transition-colors flex-1 ${idx === 0 ? 'bg-yellow-50/30' : idx === 1 ? 'bg-gray-50/30' : idx === 2 ? 'bg-orange-50/20' : 'hover:bg-gray-50/50'}`}
+                  >
+                    <td className="px-8 py-5">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm
+                        ${idx === 0 ? 'bg-yellow-400 text-white shadow-lg shadow-yellow-200' : 
+                          idx === 1 ? 'bg-gray-400 text-white shadow-lg shadow-gray-200' : 
+                          idx === 2 ? 'bg-orange-400 text-white shadow-lg shadow-orange-200' : 
+                          'text-gray-400'}`}>
+                        {idx + 1}
+                      </div>
+                    </td>
+                    <td className="px-8 py-5">
+                      <div className="flex items-center gap-3">
+                        <div className="font-bold text-gray-800">{s.userName}</div>
+                        {s.isCertified && <Award size={14} className="text-[#FF9933]" />}
+                      </div>
+                    </td>
+                    <td className="px-8 py-5">
+                      <div className="text-sm font-medium text-gray-500">{s.examTitle}</div>
+                    </td>
+                    <td className="px-8 py-5">
+                      <div className="font-mono font-bold text-gray-400">
+                        <span className="text-gray-800">{s.score}</span> / {s.totalPoints}
+                      </div>
+                    </td>
+                    <td className="px-8 py-5 text-right">
+                      <div className={`inline-flex px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider
+                        ${s.percentage >= 80 ? 'bg-green-100 text-green-700' : 
+                          s.percentage >= 50 ? 'bg-yellow-100 text-yellow-700' : 
+                          'bg-red-100 text-red-700'}`}>
+                        {Math.round(s.percentage)}%
+                      </div>
+                    </td>
+                  </motion.tr>
+                );
+              })}
+              {leaderboardData.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-8 py-16 text-center text-gray-400 italic">No graded submissions yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
 
 function HomeView({ onLoginSuccess }: { onLoginSuccess: (u: UserProfile) => void }) {
   const [name, setName] = useState('');
@@ -754,16 +964,17 @@ function ResultsView({ userId }: { userId: string }) {
 }
 
 function CertificateView({ submission, overrides }: { submission: Submission, overrides?: any }) {
-  const safeTotal = submission.totalPoints && submission.totalPoints > 0 ? submission.totalPoints : 100;
-  const percentage = Math.round((submission.score / (submission.totalPoints || 1)) * 100) || 0;
+  const safeScore = Number(overrides?.score !== undefined ? overrides.score : submission.score) || 0;
+  const safeTotalPoints = Number(submission.totalPoints) || 1;
+  const percentage = Math.round((safeScore / safeTotalPoints) * 100) || 0;
   
   const data = {
     userName: overrides?.userName || submission.userName,
     examTitle: overrides?.examTitle || submission.examTitle,
-    score: overrides?.score !== undefined ? overrides.score : submission.score,
+    score: safeScore,
     adminRole: overrides?.adminRole || "Administrative Head",
     adminName: overrides?.adminName || "HG Prahlad Bhaktha das",
-    authoritySign: overrides?.authoritySign || "Admin Authority",
+    authoritySign: overrides?.authoritySign || "Administrative Authority",
     instituteName: overrides?.instituteName || "International Sri Krishna Mandir",
     academyName: overrides?.academyName || "Bhaktivedanta Academy of Education",
     teachingsOf: overrides?.teachingsOf || "Srila Prabhupada",
@@ -772,72 +983,92 @@ function CertificateView({ submission, overrides }: { submission: Submission, ov
     signatureUrl: overrides?.signatureUrl || ""
   };
 
-  const currentScore = data.score !== undefined ? data.score : submission.score;
-  const displayPercentage = Math.round((currentScore / safeTotal) * 100) || 0;
-
   return (
-    <div className="bg-white p-16 shadow-2xl relative overflow-hidden border-[16px] border-[#FF9933]/10 print:shadow-none print:border-[#FF9933] print:p-8 certificate-content" id="certificate-content">
-      {/* Background Ornament */}
-      <div className="absolute top-0 right-0 w-64 h-64 bg-[#FF9933]/5 rounded-full -mr-32 -mt-32 blur-3xl" />
-      <div className="absolute bottom-0 left-0 w-64 h-64 bg-[#FF9933]/5 rounded-full -ml-32 -mb-32 blur-3xl secondary-ornament" />
-      
-      <div className="relative border-4 border-[#FF9933]/20 p-12 flex flex-col items-center text-center">
-        {/* Logo Section */}
-        <div className="mb-8 flex flex-col items-center">
+    <div 
+      className="bg-[#fdfbf7] p-8 sm:p-12 shadow-2xl relative certificate-content mx-auto" 
+      id="certificate-content" 
+      style={{ 
+        width: '100%',
+        maxWidth: '1050px',
+        aspectRatio: '1.414 / 1',
+        display: 'flex',
+        flexDirection: 'column',
+        boxSizing: 'border-box',
+        border: '14px solid #c5a059',
+        outline: '1px solid #8e6d2d',
+        outlineOffset: '-22px',
+        overflow: 'hidden'
+      }}
+    >
+      {/* Decorative Layer */}
+      <div className="absolute inset-0 border-[1px] border-[#c5a059]/30 m-8 pointer-events-none" />
+      <div className="absolute inset-0 border-[1px] border-[#c5a059]/10 m-10 pointer-events-none" />
+
+      {/* Ornamented Corners */}
+      <div className="absolute top-6 left-6 w-16 h-16 sm:w-24 sm:h-24 border-t-2 border-l-2 border-[#8e6d2d]/40 pointer-events-none" />
+      <div className="absolute top-6 right-6 w-16 h-16 sm:w-24 sm:h-24 border-t-2 border-r-2 border-[#8e6d2d]/40 pointer-events-none" />
+      <div className="absolute bottom-6 left-6 w-16 h-16 sm:w-24 sm:h-24 border-b-2 border-l-2 border-[#8e6d2d]/40 pointer-events-none" />
+      <div className="absolute bottom-6 right-6 w-16 h-16 sm:w-24 sm:h-24 border-b-2 border-r-2 border-[#8e6d2d]/40 pointer-events-none" />
+
+      <div className="relative flex-1 flex flex-col items-center justify-between py-6 sm:py-12 px-6 sm:px-16">
+        {/* Logo and Institution */}
+        <div className="flex flex-col items-center space-y-2 sm:space-y-4">
           {data.logoUrl ? (
-            <img src={data.logoUrl} alt="Logo" className="w-24 h-24 object-contain mb-8" referrerPolicy="no-referrer" />
+            <img src={data.logoUrl} alt="Logo" className="h-16 sm:h-32 object-contain" referrerPolicy="no-referrer" />
           ) : (
-            <div className="w-24 h-24 bg-[#FF9933] rounded-3xl rotate-45 flex items-center justify-center text-white mb-8 shadow-xl shadow-[#FF9933]/30">
-               <div className="-rotate-45 font-black text-3xl">{data.logoText}</div>
+            <div className="w-16 h-16 sm:w-32 sm:h-32 bg-[#c5a059] rounded-full flex items-center justify-center text-white shadow-xl border-4 sm:border-8 border-white/50">
+               <div className="font-serif font-black text-lg sm:text-4xl">{data.logoText}</div>
             </div>
           )}
-          <h1 className="text-4xl font-black text-[#2D2D2D] tracking-tighter uppercase mb-1">{data.instituteName}</h1>
-          <p className="text-[#FF9933] font-bold tracking-[0.3em] text-xs uppercase underline decoration-2 underline-offset-4 decoration-[#FF9933]/20">{data.academyName}</p>
-        </div>
-
-        <div className="mb-10">
-          <h2 className="text-6xl font-serif italic text-gray-800 mb-2">Certificate of Achievement</h2>
-          <div className="h-1.5 w-64 bg-gradient-to-r from-transparent via-[#FF9933] to-transparent mx-auto rounded-full" />
-        </div>
-
-        <p className="text-xl text-gray-500 mb-6 font-medium italic">This is to certify that</p>
-        
-        <h3 className="text-5xl font-bold text-[#2D2D2D] mb-10 pb-2 border-b-2 border-gray-100 min-w-[400px]">
-          {data.userName}
-        </h3>
-
-        <p className="max-w-xl mx-auto text-gray-500 leading-relaxed text-lg mb-12">
-          has successfully demonstrated exceptional proficiency in the examination on <br/>
-          <span className="font-bold text-[#2D2D2D] text-2xl group block mt-2">"{data.examTitle}"</span> <br/>
-          achieving a grade of <span className="text-[#FF9933] font-black">{displayPercentage}%</span> and gaining deep spiritual realizations 
-          according to the teachings of <span className="font-bold text-gray-700 italic">{data.teachingsOf}</span>.
-        </p>
-
-        <div className="grid grid-cols-2 gap-20 w-full max-w-2xl items-end mt-12 bg-gray-50/50 p-8 rounded-3xl">
           <div className="text-center">
-            <div className="h-px bg-gray-300 w-full mb-4" />
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Date Issued</p>
-            <p className="font-bold text-gray-800 text-lg">{new Date(submission.completedAt).toLocaleDateString()}</p>
-          </div>
-          <div className="text-center relative">
-             {/* Signature Mock */}
-            <div className="absolute -top-16 left-1/2 -translate-x-1/2 w-48 h-20 opacity-80 pointer-events-none select-none flex items-center justify-center">
-               {data.signatureUrl ? (
-                 <img src={data.signatureUrl} alt="Signature" className="max-h-full object-contain" referrerPolicy="no-referrer" />
-               ) : (
-                 <div className="font-serif italic text-4xl text-[#1A1A1A] skew-x-[-15deg] opacity-60 signature-text">{data.authoritySign}</div>
-               )}
-            </div>
-            <div className="h-px bg-gray-300 w-full mb-4" />
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">{data.adminRole}</p>
-            <p className="font-bold text-[#FF9933] text-lg">{data.adminName}</p>
+            <h1 className="text-xl sm:text-5xl font-serif font-bold text-[#1a1a1a] uppercase tracking-normal leading-tight">{data.instituteName}</h1>
+            <p className="text-[#8e6d2d] font-bold tracking-[0.4em] text-[8px] sm:text-[18px] uppercase">{data.academyName}</p>
           </div>
         </div>
 
-        <div className="mt-12 text-[9px] text-gray-300 font-mono tracking-widest uppercase flex items-center gap-4">
-          <span>Auth ID: {submission.id.split('-')[0].toUpperCase()}</span>
-          <div className="w-1 h-1 bg-gray-300 rounded-full" />
-          <span>Blockchain Verified Certificate</span>
+        {/* Seal - Decorative Absolute Element */}
+        <div className="absolute right-12 top-1/2 -translate-y-1/2 opacity-10 pointer-events-none select-none">
+           <div className="relative w-48 h-48 border-8 border-[#c5a059] rounded-full flex items-center justify-center rotate-12">
+              <div className="text-[#c5a059] font-serif font-black text-4xl text-center leading-none">
+                 OFFICIAL<br/>SEAL
+              </div>
+              <div className="absolute inset-0 border-4 border-[#c5a059] m-2 rounded-full border-dashed" />
+           </div>
+        </div>
+
+        {/* Awardee Name */}
+        <div className="flex flex-col items-center w-full space-y-4 flex-1 justify-center py-4 sm:py-8">
+          <p className="text-gray-600 font-serif italic text-sm sm:text-3xl">This certificate is awarded to</p>
+          <h3 className="text-2xl sm:text-8xl font-serif font-bold text-[#1a1a1a] tracking-tight text-center leading-none">
+            {data.userName}
+          </h3>
+          <div className="h-1 w-32 sm:w-96 bg-[#c5a059]/40 rounded-full" />
+        </div>
+
+        {/* Date and Signature Row */}
+        <div className="w-full flex justify-between items-end px-2 sm:px-8 pt-2">
+          {/* Issue Date */}
+          <div className="text-center w-32 sm:w-80">
+            <div className="h-[1px] sm:h-[2px] bg-gray-400 w-full mb-2 sm:mb-4" />
+            <p className="text-[10px] sm:text-lg font-black text-gray-700 uppercase tracking-widest mb-0.5 sm:mb-1">Issued On</p>
+            <p className="font-serif font-bold text-[#1a1a1a] text-[10px] sm:text-3xl">
+              {new Date(submission.completedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}
+            </p>
+          </div>
+
+          {/* Signature */}
+          <div className="text-center w-32 sm:w-80 relative">
+             <div className="absolute -top-12 sm:-top-40 left-1/2 -translate-x-1/2 w-48 sm:w-[500px] h-12 sm:h-40 flex items-center justify-center">
+                {data.signatureUrl ? (
+                  <img src={data.signatureUrl} alt="Signature" className="max-h-full object-contain" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="font-serif italic text-lg sm:text-7xl text-[#1a1a1a] skew-x-[-15deg] opacity-90 select-none">{data.authoritySign}</div>
+                )}
+             </div>
+             <div className="h-[1px] sm:h-[2px] bg-gray-400 w-full mb-2 sm:mb-4" />
+             <p className="text-[10px] sm:text-lg font-black text-gray-700 uppercase tracking-widest mb-0.5 sm:mb-1 leading-none">{data.adminRole}</p>
+             <p className="font-serif font-bold text-[#8e6d2d] text-[10px] sm:text-3xl leading-tight">{data.adminName}</p>
+          </div>
         </div>
       </div>
 
@@ -874,7 +1105,7 @@ function AdminPanel() {
   const [allSubmissions, setAllSubmissions] = useState<Submission[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'exams' | 'submissions' | 'admins'>('exams');
+  const [activeTab, setActiveTab] = useState<'exams' | 'submissions' | 'admins' | 'leaderboard'>('exams');
   const [showAddExam, setShowAddExam] = useState(false);
   const [showAddAdmin, setShowAddAdmin] = useState(false);
   
@@ -892,6 +1123,59 @@ function AdminPanel() {
   const [manualGrade, setManualGrade] = useState({ score: 0, feedback: '' });
   const [gradingLoading, setGradingLoading] = useState(false);
   const [viewingAdminCertificate, setViewingAdminCertificate] = useState<Submission | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  const downloadPDF = async () => {
+    const element = document.getElementById('certificate-content');
+    if (!element || !viewingAdminCertificate) return;
+    
+    setDownloading(true);
+    try {
+      // 1. Prepare for high-quality capture
+      // Ensure everything is visible and fonts are loaded
+      await new Promise(r => setTimeout(r, 2000));
+      
+      // Use exact 300 DPI A4 Landscape proportions for the highest professional quality
+      const captureWidth = 3508; 
+      const captureHeight = 2480; 
+      
+      const dataUrl = await toPng(element, { 
+        cacheBust: true,
+        pixelRatio: 1, 
+        backgroundColor: '#fdfbf7',
+        width: captureWidth,
+        height: captureHeight,
+        style: {
+          transform: 'none',
+          top: '0',
+          left: '0',
+          margin: '0',
+          padding: '0',
+          position: 'fixed',
+          zIndex: '9999',
+          width: `${captureWidth}px`,
+          height: `${captureHeight}px`,
+          maxWidth: 'none',
+          maxHeight: 'none',
+        }
+      });
+      
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
+      
+      pdf.addImage(dataUrl, 'PNG', 0, 0, 297, 210, undefined, 'SLOW');
+      pdf.save(`Bhakti_Sastri_Degree_${viewingAdminCertificate.userName?.replace(/\s+/g, '_') || 'Student'}.pdf`);
+    } catch (err) {
+      console.error("PDF Export failed", err);
+      alert("Professional quality download failed. Please use your browser's Print -> Save as PDF as a high-fidelity alternative.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
@@ -970,8 +1254,18 @@ function AdminPanel() {
           >
             Admins
           </button>
+          <button 
+            onClick={() => setActiveTab('leaderboard')}
+            className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'leaderboard' ? 'bg-white shadow-sm text-[#FF9933]' : 'text-gray-500'}`}
+          >
+            Leaderboard
+          </button>
         </div>
       </div>
+
+      {activeTab === 'leaderboard' && (
+        <LeaderboardView />
+      )}
 
       {activeTab === 'admins' && (
         <div className="space-y-6">
@@ -1236,9 +1530,17 @@ function AdminPanel() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-xl font-bold">Certificate Customizer</h3>
-                    <p className="text-xs text-gray-500">Modify any field below then click 'Print / Save PDF'.</p>
+                    <p className="text-xs text-gray-500">Modify any field below then click 'Download' or 'Print'.</p>
                   </div>
                   <div className="flex gap-2">
+                    <button 
+                      onClick={downloadPDF}
+                      disabled={downloading}
+                      className="bg-[#2D2D2D] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:scale-105 transition-transform disabled:opacity-50"
+                    >
+                      {downloading ? <Loader2 size={20} className="animate-spin" /> : <Download size={20} />} 
+                      Download PDF
+                    </button>
                     <button 
                       onClick={() => window.print()}
                       className="bg-[#FF9933] text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-[#FF9933]/20 hover:scale-105 transition-transform"
@@ -1275,9 +1577,13 @@ function AdminPanel() {
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Score</span>
                     <input 
                       type="number"
+                      placeholder="Score"
                       className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
-                      value={viewingAdminCertificate.score} 
-                      onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, score: parseFloat(e.target.value)})}
+                      value={viewingAdminCertificate.score || 0} 
+                      onChange={(e) => {
+                        const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                        setViewingAdminCertificate({...viewingAdminCertificate, score: isNaN(val) ? 0 : val});
+                      }}
                     />
                   </div>
                   <div className="flex flex-col">
@@ -1292,19 +1598,21 @@ function AdminPanel() {
 
                 <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 bg-white p-4 rounded-2xl border border-gray-100">
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Logo Text / Image URL</span>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Logo Text</span>
                     <input 
-                      placeholder="ISKM or Image URL"
+                      placeholder="e.g. ISKM"
                       className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
-                      value={viewingAdminCertificate.logoUrl || viewingAdminCertificate.logoText || 'ISKM'} 
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val.startsWith('http') || val.startsWith('data:')) {
-                           setViewingAdminCertificate({...viewingAdminCertificate, logoUrl: val, logoText: ''});
-                        } else {
-                           setViewingAdminCertificate({...viewingAdminCertificate, logoText: val, logoUrl: ''});
-                        }
-                      }}
+                      value={viewingAdminCertificate.logoText || ''} 
+                      onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, logoText: e.target.value, logoUrl: ''})}
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Logo Image URL</span>
+                    <input 
+                      placeholder="https://... logo.png"
+                      className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
+                      value={viewingAdminCertificate.logoUrl || ''} 
+                      onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, logoUrl: e.target.value, logoText: ''})}
                     />
                   </div>
                   <div className="flex flex-col">
@@ -1324,7 +1632,7 @@ function AdminPanel() {
                     />
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Admin Role (e.g. Principal)</span>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Admin Role (Principal)</span>
                     <input 
                       className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
                       value={viewingAdminCertificate.adminRole || 'Administrative Head'} 
@@ -1332,7 +1640,7 @@ function AdminPanel() {
                     />
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Admin Name</span>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Principal Name</span>
                     <input 
                       className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
                       value={viewingAdminCertificate.adminName || "HG Prahlad Bhaktha das"} 
@@ -1340,26 +1648,28 @@ function AdminPanel() {
                     />
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Sign Display / Image URL</span>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Signature (Text)</span>
                     <input 
-                      placeholder="Text or Image URL"
+                      placeholder="e.g. Authorized Sign"
                       className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200 font-serif italic" 
-                      value={viewingAdminCertificate.signatureUrl || viewingAdminCertificate.authoritySign || 'Admin Authority'} 
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val.startsWith('http') || val.startsWith('data:')) {
-                           setViewingAdminCertificate({...viewingAdminCertificate, signatureUrl: val, authoritySign: ''});
-                        } else {
-                           setViewingAdminCertificate({...viewingAdminCertificate, authoritySign: val, signatureUrl: ''});
-                        }
-                      }}
+                      value={viewingAdminCertificate.authoritySign || ''} 
+                      onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, authoritySign: e.target.value, signatureUrl: ''})}
+                    />
+                  </div>
+                   <div className="flex flex-col">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Signature (Image URL)</span>
+                    <input 
+                      placeholder="https://... sign.png"
+                      className="text-sm p-2 bg-gray-50 rounded-lg outline-none focus:ring-2 ring-orange-200" 
+                      value={viewingAdminCertificate.signatureUrl || ''} 
+                      onChange={(e) => setViewingAdminCertificate({...viewingAdminCertificate, signatureUrl: e.target.value, authoritySign: ''})}
                     />
                   </div>
                 </div>
               </div>
             </div>
-            <div className="p-12 overflow-y-auto bg-gray-100 flex-1 flex justify-center items-start">
-              <div className="max-w-[1000px] w-full origin-top transform transition-all duration-300">
+            <div className="p-4 sm:p-12 overflow-y-auto bg-gray-100 flex-1 flex justify-center items-start min-h-[600px] lg:min-h-[800px]">
+              <div className="w-full max-w-[1200px] flex justify-center py-12">
                 <CertificateView submission={viewingAdminCertificate} overrides={viewingAdminCertificate} />
               </div>
             </div>
