@@ -50,6 +50,7 @@ export interface Question {
 
 export const api = {
   async fetchWithLog(url: string, options?: RequestInit) {
+    console.log(`API Request: ${options?.method || 'GET'} ${url}`);
     const res = await fetch(url, options);
     if (!res.ok) {
       const text = await res.text();
@@ -137,7 +138,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    return res.json();
+    try {
+      return await res.json();
+    } catch (e) {
+      console.error("JSON parse error for login:", e);
+      throw new Error("Server response was not valid JSON. Ensure backend is running.");
+    }
   }
 };
 

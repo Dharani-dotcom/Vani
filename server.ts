@@ -47,7 +47,7 @@ async function startServer() {
 
   // API Routes
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", time: new Date() });
+    res.json({ status: "ok", time: new Date(), version: "1.0.1" });
   });
 
   app.get("/api/data", (req, res) => {
@@ -56,6 +56,7 @@ async function startServer() {
 
   app.post("/api/login", (req, res) => {
     const { email, password, name, type } = req.body;
+    console.log(`Login attempt: ${type}`, { email, name });
     const data = getData();
     
     if (type === 'admin') {

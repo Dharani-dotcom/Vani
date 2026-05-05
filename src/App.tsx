@@ -30,6 +30,12 @@ export default function App() {
   const [selectedExamId, setSelectedExamId] = useState<string | null>(null);
 
   useEffect(() => {
+    // Health check
+    fetch('/api/health')
+      .then(r => r.json())
+      .then(d => console.log("API Health:", d))
+      .catch(e => console.error("API Health Check Failed:", e));
+
     const savedUser = localStorage.getItem('user');
     if (savedUser) {
       const u = JSON.parse(savedUser);
@@ -194,7 +200,8 @@ function HomeView({ onLoginSuccess }: { onLoginSuccess: (u: UserProfile) => void
       const u = await api.login({ name, type: 'devotee' });
       onLoginSuccess(u);
     } catch (err: any) {
-      alert("Failed to start exam. Please try again.");
+      console.error("Login Error:", err);
+      alert(`Failed to start exam: ${err.message}`);
     } finally {
       setAuthLoading(false);
     }
