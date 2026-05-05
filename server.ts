@@ -46,16 +46,6 @@ async function startServer() {
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
   }
 
-  app.use(cors());
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
-
-  // Logging middleware - MUST be the first thing to run
-  app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - NODE_ENV=${process.env.NODE_ENV}`);
-    next();
-  });
-
   console.log("Registering API routes...");
   // API Routes
   app.get("/api/health", (req, res) => {
