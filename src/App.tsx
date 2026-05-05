@@ -235,29 +235,17 @@ function ProfilePage({ profile }: { profile: UserProfile }) {
   const downloadPDF = async (submission: Submission) => {
     setPdfGeneratingId(submission.id);
     try {
-      // Create a temporary hidden container for the certificate to capture it perfectly
-      const container = document.createElement('div');
-      container.style.position = 'absolute';
-      container.style.left = '-9999px';
-      container.style.top = '0';
-      container.id = 'temp-cert-container';
-      document.body.appendChild(container);
-
-      // We need to render the CertificateView into this container
-      // Since we are in a functional component, we can't easily "render" manually without react-dom/client
-      // But we already have a Cert renderer, maybe we just use a hidden one in the DOM
+      // Small delay to ensure the certificate element is properly in the DOM and rendered
+      await new Promise(resolve => setTimeout(resolve, 500));
       
-      // Let's use the one already in the DOM if we are viewing it, 
-      // but for "Bulk" download from profile, we need a smarter way or a dedicated hidden Cert component
-      
-      // I'll add a hidden CertificateView at the end of ProfilePage for this purpose
       const element = document.getElementById(`hidden-cert-${submission.id}`);
       if (!element) throw new Error("Certificate element not found");
 
       const dataUrl = await toPng(element as HTMLElement, {
         quality: 1.0,
         pixelRatio: 2,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        cacheBust: true,
       });
 
       const pdf = new jsPDF({
@@ -351,7 +339,10 @@ function ProfilePage({ profile }: { profile: UserProfile }) {
         </div>
         <div className="divide-y divide-gray-50">
           {submissions.length > 0 ? (
-            submissions.sort((a, b) => b.completedAt - a.completedAt).map((s, idx) => {
+            submissions
+              .filter(s => !!s.completedAt)
+              .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
+              .map((s, idx) => {
               const perc = s.totalPoints > 0 ? (s.score / s.totalPoints) * 100 : 0;
               return (
                 <div key={s.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-gray-50 transition-colors">
@@ -379,9 +370,9 @@ function ProfilePage({ profile }: { profile: UserProfile }) {
                           {pdfGeneratingId === s.id ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                           PDF
                         </button>
-                        {/* Hidden Certificate for capture */}
-                        <div className="absolute h-0 w-0 overflow-hidden pointer-events-none opacity-0">
-                          <div id={`hidden-cert-${s.id}`} style={{ width: '1200px' }}>
+                        {/* Hidden Certificate for capture - High-z and offscreen for capture libs */}
+                        <div className="fixed -left-[10000px] top-0 pointer-events-none z-[-100] bg-white">
+                          <div id={`hidden-cert-${s.id}`} style={{ width: '1200px', background: '#ffffff', minHeight: '850px' }}>
                             <CertificateView submission={s} />
                           </div>
                         </div>
@@ -2100,14 +2091,24 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
   };
 
   const handleDelete = async () => {
-    const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+    const storedUser = localStorage.getItem('user');
+    if (!storedUser) return alert("You must be logged in to delete exams.");
+    const currentUser = JSON.parse(storedUser);
+    
+    if (currentUser.role !== 'admin' && !currentUser.isSuperAdmin) {
+      return alert("You do not have administrative privileges to delete exams. Current role: " + currentUser.role);
+    }
+    
     if (window.confirm(`Are you sure you want to delete "${exam.title}"? This cannot be undone.`)) {
       try {
+        console.log(`Frontend: Attempting to delete exam ${exam.id} as admin ${currentUser.uid}`);
         await api.deleteExam(exam.id, currentUser.uid);
+        alert("Exam deleted successfully!");
         onRefresh();
       } catch (err: any) {
         console.error("Delete exam failed", err);
-        alert(`Failed to delete exam: ${err.message}`);
+        const errorMsg = err.message || "Unknown error occurred";
+        alert(`Failed to delete exam: ${errorMsg}\n\nTechnical details: ${err.message}`);
       }
     }
   };

@@ -141,10 +141,10 @@ async function startServer() {
     const { adminId, newAdminEmail, newAdminPassword, newAdminName } = req.body;
     const data = getData();
     
-    // Verify requester is an admin
-    const requester = data.users.find((u: any) => u.uid === adminId && u.role === 'admin');
+    // Verify requester is a Super Admin
+    const requester = data.users.find((u: any) => u.uid === adminId && u.isSuperAdmin);
     if (!requester) {
-      return res.status(403).json({ error: "Unauthorized. Only admins can create new admins." });
+      return res.status(403).json({ error: "Unauthorized. Only Super Admins can create new admins." });
     }
 
     // Check if user already exists
@@ -170,7 +170,7 @@ async function startServer() {
   });
 
   app.delete("/api/admin/:id", (req, res) => {
-    const adminId = req.query.adminId || req.body.adminId;
+    const adminId = req.query.adminId || req.body.adminId || req.headers['x-admin-id'];
     const data = getData();
     
     const requester = data.users.find((u: any) => u.uid === adminId && u.isSuperAdmin);
@@ -267,31 +267,34 @@ async function startServer() {
 
   app.delete("/api/exams/:id", (req, res) => {
     const { id } = req.params;
-    const adminId = req.query.adminId || req.body.adminId;
-    console.log(`[DELETE] Attempting to delete exam: ${id} by admin: ${adminId}`);
+    const adminId = req.query.adminId as string;
+    console.log(`[DELETE EXAM] ID: ${id}, AdminID: ${adminId}`);
+    
     const data = getData();
     
     // Auth check
-    const requester = data.users.find((u: any) => u.uid === adminId && u.role === 'admin');
+    const requester = data.users.find((u: any) => u.uid === adminId && (u.role === 'admin' || u.isSuperAdmin));
     if (!requester) {
-      console.log(`[DELETE] Unauthorized delete attempt for exam: ${id} by: ${adminId}`);
-      return res.status(403).json({ error: "Unauthorized. Admin access required." });
+      console.log(`[DELETE EXAM] Auth Failed. adminId "${adminId}" not found or not admin.`);
+      return res.status(403).json({ error: "Unauthorized: Admin privileges required." });
     }
 
-    const initialExamCount = data.exams.length;
-    data.exams = data.exams.filter((e: any) => e.id !== id);
-    const finalExamCount = data.exams.length;
-
-    if (initialExamCount === finalExamCount) {
-      console.log(`[DELETE] Exam not found: ${id}`);
-    } else {
-      console.log(`[DELETE] Exam deleted: ${id} by ${adminId}. Also removing related submissions.`);
-      // Clean up related submissions
-      data.submissions = data.submissions.filter((s: any) => s.examId !== id);
+    const examIndex = data.exams.findIndex((e: any) => String(e.id) === String(id));
+    if (examIndex === -1) {
+      console.log(`[DELETE EXAM] Exam ${id} NOT found.`);
+      return res.status(404).json({ error: "Exam not found" });
     }
+
+    console.log(`[DELETE EXAM] Removing exam: ${data.exams[examIndex].title}`);
+    data.exams.splice(examIndex, 1);
+    
+    // Clean up related submissions
+    const initialSubCount = data.submissions.length;
+    data.submissions = data.submissions.filter((s: any) => String(s.examId) !== String(id));
+    console.log(`[DELETE EXAM] Cleaned up ${initialSubCount - data.submissions.length} submissions.`);
 
     saveData(data);
-    res.json({ success: true, deleted: initialExamCount !== finalExamCount });
+    res.json({ success: true });
   });
 
   app.get("/api/submissions", (req, res) => {
