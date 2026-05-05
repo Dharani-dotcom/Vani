@@ -265,7 +265,7 @@ function HomeView({ onLoginSuccess }: { onLoginSuccess: (u: UserProfile) => void
         </div>
       ) : (
         <div className="w-full max-w-md bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
-          <h2 className="text-2xl font-bold mb-6">{isRegister ? 'Register Admin' : 'Admin Sign In'}</h2>
+          <h2 className="text-2xl font-bold mb-6">Admin Sign In</h2>
           <form onSubmit={handleAdminAuth} className="space-y-4 text-left">
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1">Email</label>
@@ -277,12 +277,9 @@ function HomeView({ onLoginSuccess }: { onLoginSuccess: (u: UserProfile) => void
             </div>
             {authError && <p className="text-xs text-red-500 font-medium">{authError}</p>}
             <button type="submit" disabled={authLoading} className="w-full py-4 bg-[#2D2D2D] text-white rounded-xl font-bold shadow-lg flex items-center justify-center">
-              {authLoading ? <Loader2 className="animate-spin" size={20} /> : (isRegister ? "Register Admin Account" : "Sign In as Admin")}
+              {authLoading ? <Loader2 className="animate-spin" size={20} /> : "Sign In as Admin"}
             </button>
             <div className="flex flex-col gap-2 mt-4 text-center">
-              <button type="button" onClick={() => setIsRegister(!isRegister)} className="text-sm text-[#FF9933] font-bold hover:underline">
-                {isRegister ? "Already have an account? Sign In" : "First time? Register here"}
-              </button>
               <button type="button" onClick={() => setShowAdminLogin(false)} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Back to Devotee Entry</button>
             </div>
           </form>
@@ -864,12 +861,21 @@ function AdminPanel() {
   const [allSubmissions, setAllSubmissions] = useState<Submission[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'exams' | 'submissions'>('exams');
+  const [activeTab, setActiveTab] = useState<'exams' | 'submissions' | 'admins'>('exams');
   const [showAddExam, setShowAddExam] = useState(false);
+  const [showAddAdmin, setShowAddAdmin] = useState(false);
   
   const [newExam, setNewExam] = useState<Partial<Exam>>({
     title: '', description: '', bookTitle: '', durationMinutes: 30
   });
+
+  const [newAdminData, setNewAdminData] = useState({
+    email: '', password: '', name: ''
+  });
+  const [adminActionLoading, setAdminActionLoading] = useState(false);
+  const [adminActionError, setAdminActionError] = useState<string | null>(null);
+
+  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
   const loadData = async () => {
     setLoading(true);
@@ -923,8 +929,96 @@ function AdminPanel() {
           >
             Gradebook
           </button>
+          <button 
+            onClick={() => setActiveTab('admins')}
+            className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${activeTab === 'admins' ? 'bg-white shadow-sm text-[#FF9933]' : 'text-gray-500'}`}
+          >
+            Admins
+          </button>
         </div>
       </div>
+
+      {activeTab === 'admins' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h3 className="text-xl font-bold text-gray-400 uppercase tracking-widest text-sm">System Administrators</h3>
+            <button 
+              onClick={() => setShowAddAdmin(true)}
+              className="bg-[#2D2D2D] text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2"
+            >
+              <PlusCircle size={20} /> Add New Admin
+            </button>
+          </div>
+
+          {showAddAdmin && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl p-8 w-full max-w-lg shadow-2xl">
+                <h3 className="text-2xl font-bold mb-6">Create New Admin Account</h3>
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  setAdminActionLoading(true);
+                  setAdminActionError(null);
+                  try {
+                    await api.createAdmin(currentUser.uid, newAdminData);
+                    setShowAddAdmin(false);
+                    setNewAdminData({ email: '', password: '', name: '' });
+                    loadData();
+                  } catch (err: any) {
+                    setAdminActionError(err.message);
+                  } finally {
+                    setAdminActionLoading(false);
+                  }
+                }} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Full Name</label>
+                    <input required value={newAdminData.name} onChange={e => setNewAdminData({...newAdminData, name: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Email Address</label>
+                    <input required type="email" value={newAdminData.email} onChange={e => setNewAdminData({...newAdminData, email: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Password</label>
+                    <input required type="password" value={newAdminData.password} onChange={e => setNewAdminData({...newAdminData, password: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" />
+                  </div>
+                  {adminActionError && <p className="text-xs text-red-500 font-medium">{adminActionError}</p>}
+                  <div className="flex gap-4 pt-4">
+                    <button type="button" onClick={() => setShowAddAdmin(false)} className="flex-1 py-3 px-6 border-2 border-gray-100 rounded-xl font-bold hover:bg-gray-50 transition-colors">Cancel</button>
+                    <button type="submit" disabled={adminActionLoading} className="flex-1 py-3 px-6 bg-[#FF9933] text-white rounded-xl font-bold shadow-lg shadow-[#FF9933]/20 flex items-center justify-center gap-2">
+                      {adminActionLoading ? <Loader2 size={18} className="animate-spin" /> : "Verify & Create"}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 text-gray-500 text-xs font-bold uppercase tracking-wider">
+                <tr>
+                  <th className="px-6 py-4">Name</th>
+                  <th className="px-6 py-4">Email</th>
+                  <th className="px-6 py-4">Created At</th>
+                  <th className="px-6 py-4 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {users.filter(u => u.role === 'admin').map((admin) => (
+                  <tr key={admin.uid} className="hover:bg-gray-50/50 transition-colors text-sm">
+                    <td className="px-6 py-4 font-bold">{admin.displayName}</td>
+                    <td className="px-6 py-4">{admin.email}</td>
+                    <td className="px-6 py-4 text-gray-400">{new Date(admin.createdAt).toLocaleDateString()}</td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider">Active</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {activeTab === 'exams' ? (
         <div className="space-y-6">

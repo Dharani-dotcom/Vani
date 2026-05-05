@@ -9,13 +9,14 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Middlewares
   app.use(cors());
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  app.use(express.json({ limit: '10mb' })); // Increased limit
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // Logging middleware
   app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.url} - NODE_ENV=${process.env.NODE_ENV}`);
+    console.log(`[REQUEST] ${req.method} ${req.url}`);
     next();
   });
 
@@ -24,7 +25,16 @@ async function startServer() {
   // Initialize data file if it doesn't exist
   if (!fs.existsSync(DATA_FILE)) {
     fs.writeFileSync(DATA_FILE, JSON.stringify({
-      users: [],
+      users: [
+        {
+          uid: uuidv4(),
+          email: 'bharathidharani52@gmail.com',
+          password: '12345671',
+          displayName: 'Super Admin',
+          role: 'admin',
+          createdAt: new Date()
+        }
+      ],
       exams: [],
       submissions: []
     }, null, 2));
@@ -33,10 +43,41 @@ async function startServer() {
   function getData() {
     try {
       const content = fs.readFileSync(DATA_FILE, 'utf8');
-      return JSON.parse(content);
+      const data = JSON.parse(content);
+      
+      // Ensure the primary admin exists and has the correct password
+      let admin = data.users.find((u: any) => u.email === 'bharathidharani52@gmail.com');
+      if (!admin) {
+        data.users.push({
+          uid: uuidv4(),
+          email: 'bharathidharani52@gmail.com',
+          password: '12345671',
+          displayName: 'Super Admin',
+          role: 'admin',
+          createdAt: new Date()
+        });
+        fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+      } else if (admin.password !== '12345671') {
+        admin.password = '12345671';
+        fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+      }
+      return data;
     } catch (e) {
       console.error("Error reading data file, resetting...", e);
-      const empty = { users: [], exams: [], submissions: [] };
+      const empty = { 
+        users: [
+          {
+            uid: uuidv4(),
+            email: 'bharathidharani52@gmail.com',
+            password: '12345671',
+            displayName: 'Super Admin',
+            role: 'admin',
+            createdAt: new Date()
+          }
+        ], 
+        exams: [], 
+        submissions: [] 
+      };
       fs.writeFileSync(DATA_FILE, JSON.stringify(empty, null, 2));
       return empty;
     }
@@ -48,6 +89,7 @@ async function startServer() {
 
   // API Routes
   console.log("Registering API routes...");
+  
   app.post("/api/login", (req, res) => {
     console.log("POST /api/login reached");
     const { email, password, name, type } = req.body;
@@ -55,22 +97,52 @@ async function startServer() {
     const data = getData();
     
     if (type === 'admin') {
-      let user = data.users.find((u: any) => u.email === email && u.role === 'admin');
-      if (!user && (email === 'bharathidharani52@gmail.com' || email === 'admin@admin.com')) {
-         user = { uid: uuidv4(), email, displayName: "Super Admin", role: 'admin', createdAt: new Date() };
-         data.users.push(user);
-         saveData(data);
+      const user = data.users.find((u: any) => u.email === email && u.role === 'admin');
+      
+      if (user && user.password === password) {
+        // Don't send password back
+        const { password: _, ...userWithoutPassword } = user;
+        return res.json(userWithoutPassword);
       }
-      if (user) {
-        return res.json(user);
-      }
-      return res.status(401).json({ error: "Invalid admin credentials" });
+      
+      return res.status(401).json({ error: "Invalid admin email or password" });
     } else {
       const user = { uid: uuidv4(), displayName: name || 'Devotee', role: 'devotee', createdAt: new Date() };
       data.users.push(user);
       saveData(data);
       res.json(user);
     }
+  });
+
+  app.post("/api/admin/create", (req, res) => {
+    const { adminId, newAdminEmail, newAdminPassword, newAdminName } = req.body;
+    const data = getData();
+    
+    // Verify requester is an admin
+    const requester = data.users.find((u: any) => u.uid === adminId && u.role === 'admin');
+    if (!requester) {
+      return res.status(403).json({ error: "Unauthorized. Only admins can create new admins." });
+    }
+
+    // Check if user already exists
+    if (data.users.find((u: any) => u.email === newAdminEmail)) {
+      return res.status(400).json({ error: "A user with this email already exists." });
+    }
+
+    const newAdmin = {
+      uid: uuidv4(),
+      email: newAdminEmail,
+      password: newAdminPassword,
+      displayName: newAdminName,
+      role: 'admin',
+      createdAt: new Date()
+    };
+
+    data.users.push(newAdmin);
+    saveData(data);
+    
+    const { password: _, ...adminWithoutPassword } = newAdmin;
+    res.json(adminWithoutPassword);
   });
 
   app.get("/api/health", (req, res) => {

@@ -144,6 +144,20 @@ export const api = {
       console.error("JSON parse error for login:", e);
       throw new Error("Server response was not valid JSON. Ensure backend is running.");
     }
+  },
+  
+  async createAdmin(adminId: string, newAdminData: { email: string, password: string, name: string }): Promise<UserProfile> {
+    const res = await this.fetchWithLog('/api/admin/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        adminId,
+        newAdminEmail: newAdminData.email,
+        newAdminPassword: newAdminData.password,
+        newAdminName: newAdminData.name
+      })
+    });
+    return res.json();
   }
 };
 
