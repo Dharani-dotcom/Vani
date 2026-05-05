@@ -8,6 +8,17 @@ import cors from 'cors';
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  app.use(cors());
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+
+  // Logging middleware
+  app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url} - NODE_ENV=${process.env.NODE_ENV}`);
+    next();
+  });
+
   const DATA_FILE = path.join(process.cwd(), 'data.json');
 
   // Initialize data file if it doesn't exist
@@ -39,7 +50,7 @@ async function startServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // Logging middleware
+  // Logging middleware - MUST be the first thing to run
   app.use((req, res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - NODE_ENV=${process.env.NODE_ENV}`);
     next();
