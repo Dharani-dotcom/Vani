@@ -46,16 +46,8 @@ async function startServer() {
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
   }
 
-  console.log("Registering API routes...");
   // API Routes
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", time: new Date(), version: "1.0.1" });
-  });
-
-  app.get("/api/data", (req, res) => {
-    res.json(getData());
-  });
-
+  console.log("Registering API routes...");
   app.post("/api/login", (req, res) => {
     console.log("POST /api/login reached");
     const { email, password, name, type } = req.body;
@@ -79,6 +71,14 @@ async function startServer() {
       saveData(data);
       res.json(user);
     }
+  });
+
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", time: new Date(), version: "1.0.1" });
+  });
+
+  app.get("/api/data", (req, res) => {
+    res.json(getData());
   });
 
   app.get("/api/exams", (req, res) => {
@@ -163,7 +163,7 @@ async function startServer() {
 
   // Catch-all for API to debug missing routes
   app.all("/api/*", (req, res) => {
-    console.log(`Unmatched API route: ${req.method} ${req.path}`);
+    console.log(`Unmatched API route: ${req.method} ${req.url}`);
     res.status(404).json({ error: "API route not found" });
   });
 
