@@ -434,62 +434,31 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
 
   const submitExam = async () => {
     setIsSubmitting(true);
-    setIsGrading(true);
     try {
-      const gradingPromises = questions.map(async (q, i) => {
-        const ans = answers[i];
-        if (q.type === 'mcq') {
-          const isCorrect = ans === q.correctOptionIndex;
-          return { score: isCorrect ? 1 : 0, correct: isCorrect };
-        } else {
-          try {
-            const s = await gradeDescriptiveAnswer(q.questionText, q.idealAnswer || '', ans as string);
-            return { score: s, correct: s >= 0.7 };
-          } catch (e) {
-            console.error("AI Grading failed", e);
-            return { score: 0, correct: false };
-          }
-        }
-      });
+      const submissionAnswers = questions.map((q, i) => ({
+        questionId: q.id,
+        answer: answers[i]
+      }));
 
-      const gradedResults = await Promise.all(gradingPromises);
-      const totalScore = gradedResults.reduce((acc, curr) => acc + curr.score, 0);
-      
       const submission: Omit<Submission, 'id' | 'completedAt'> = {
         userId,
+        userName: JSON.parse(localStorage.getItem('user') || '{}').displayName || 'Devotee',
         examId,
         examTitle: exam?.title || 'Unknown Exam',
-        score: Math.round(totalScore * 10) / 10,
-        total: questions.length,
-        answers,
-        results: gradedResults.map(r => ({ correct: r.correct, score: r.score })),
+        score: 0, // Server will calculate for MCQs
+        totalMarks: questions.length,
+        status: exam?.type === 'mcq' ? 'graded' : 'pending',
+        answers: submissionAnswers,
       };
 
       await api.createSubmission(submission);
-      setIsGrading(false);
       onComplete();
     } catch (error) {
       console.error("Submission failed", error);
-      setIsGrading(false);
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  async function gradeDescriptiveAnswer(question: string, ideal: string, devoteeAnswer: string): Promise<number> {
-    try {
-      const response = await fetch('/api/grade', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, ideal, answer: devoteeAnswer }),
-      });
-      const data = await response.json();
-      return data.score || 0;
-    } catch (error) {
-      console.error("API Grading failed", error);
-      return 0;
-    }
-  }
 
   if (loading) return <div className="flex justify-center p-12"><Loader2 className="animate-spin text-[#FF9933]" /></div>;
   if (!exam || questions.length === 0) return <div>Exam not found or has no questions.</div>;
@@ -691,12 +660,18 @@ function ResultsView({ userId }: { userId: string }) {
                     <div className="flex items-center gap-3 text-sm text-gray-500">
                       <span className="flex items-center gap-1">
                         <Clock size={16} />
-                        {new Date(s.completedAt).toLocaleDateString()} ({percentage}%)
+                        {new Date(s.completedAt).toLocaleDateString()}
                       </span>
                       <span className="flex items-center gap-1">
                         <LayoutDashboard size={16} />
-                        {s.total} Questions
+                        {s.totalMarks} Questions
                       </span>
+                      {s.status === 'pending' && (
+                        <span className="flex items-center gap-1 text-blue-500 font-bold">
+                          <Clock size={16} />
+                          Awaiting Manual Grading
+                        </span>
+                      )}
                       {certified && (
                         <span className="flex items-center gap-1 text-green-600 font-bold">
                           <CheckCircle2 size={16} />
@@ -715,19 +690,22 @@ function ResultsView({ userId }: { userId: string }) {
                         <Award size={16} /> View Certificate
                       </button>
                     )}
-                    {passed && !certified && (
-                      <div className="text-[10px] text-blue-500 font-bold uppercase tracking-wider bg-blue-50 px-3 py-1 rounded-lg">
-                        Awaiting Signature
+                    {s.status === 'pending' ? (
+                      <div className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-xs font-bold border-2 border-blue-100">
+                        In Correction
                       </div>
+                    ) : (
+                      <>
+                        <div className="text-center min-w-[60px]">
+                          <div className="text-2xl font-bold text-[#FF9933]">{s.score}/{s.totalMarks}</div>
+                          <div className="text-xs text-gray-400 font-bold uppercase tracking-wider">Score</div>
+                        </div>
+                        <div className={`w-16 h-16 rounded-full border-4 flex items-center justify-center font-bold text-lg
+                          ${percentage >= 80 ? 'border-green-500 text-green-600' : percentage >= 50 ? 'border-yellow-500 text-yellow-600' : 'border-red-500 text-red-600'}`}>
+                          {percentage}%
+                        </div>
+                      </>
                     )}
-                    <div className="text-center min-w-[60px]">
-                      <div className="text-2xl font-bold text-[#FF9933]">{s.score}/{s.total}</div>
-                      <div className="text-xs text-gray-400 font-bold uppercase tracking-wider">Score</div>
-                    </div>
-                    <div className={`w-16 h-16 rounded-full border-4 flex items-center justify-center font-bold text-lg
-                      ${percentage >= 80 ? 'border-green-500 text-green-600' : percentage >= 50 ? 'border-yellow-500 text-yellow-600' : 'border-red-500 text-red-600'}`}>
-                      {percentage}%
-                    </div>
                   </div>
                 </div>
 
@@ -866,7 +844,7 @@ function AdminPanel() {
   const [showAddAdmin, setShowAddAdmin] = useState(false);
   
   const [newExam, setNewExam] = useState<Partial<Exam>>({
-    title: '', description: '', bookTitle: '', durationMinutes: 30
+    title: '', description: '', bookTitle: '', durationMinutes: 30, type: 'mcq'
   });
 
   const [newAdminData, setNewAdminData] = useState({
@@ -874,6 +852,10 @@ function AdminPanel() {
   });
   const [adminActionLoading, setAdminActionLoading] = useState(false);
   const [adminActionError, setAdminActionError] = useState<string | null>(null);
+
+  const [gradingSubmission, setGradingSubmission] = useState<Submission | null>(null);
+  const [manualGrade, setManualGrade] = useState({ score: 0, feedback: '' });
+  const [gradingLoading, setGradingLoading] = useState(false);
 
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
@@ -902,14 +884,31 @@ function AdminPanel() {
         bookTitle: newExam.bookTitle || '',
         description: newExam.description || '',
         durationMinutes: newExam.durationMinutes || 30,
-        creatorId: 'admin',
+        type: (newExam.type as 'mcq' | 'descriptive') || 'mcq',
+        creatorId: currentUser.uid,
         totalQuestions: 0,
       };
       await api.createExam(examData);
       setShowAddExam(false);
-      setNewExam({ title: '', description: '', bookTitle: '', durationMinutes: 30 });
+      setNewExam({ title: '', description: '', bookTitle: '', durationMinutes: 30, type: 'mcq' });
       loadData();
     } catch (err) { console.error("Create exam failed", err); }
+  };
+
+  const handleManualGrade = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gradingSubmission) return;
+    setGradingLoading(true);
+    try {
+      await api.gradeSubmission(gradingSubmission.id, currentUser.uid, manualGrade);
+      setGradingSubmission(null);
+      setManualGrade({ score: 0, feedback: '' });
+      loadData();
+    } catch (err) {
+      console.error("Manual grading failed", err);
+    } finally {
+      setGradingLoading(false);
+    }
   };
 
   return (
@@ -1050,6 +1049,25 @@ function AdminPanel() {
                     <textarea value={newExam.description} onChange={e => setNewExam({...newExam, description: e.target.value})} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" rows={3} placeholder="Brief summary of the exam goals..." />
                   </div>
                   <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Exam Type</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        type="button" 
+                        onClick={() => setNewExam({...newExam, type: 'mcq'})}
+                        className={`py-2 rounded-xl font-bold text-sm border-2 transition-all ${newExam.type === 'mcq' ? 'border-[#FF9933] bg-[#FF9933]/5 text-[#FF9933]' : 'border-gray-100 text-gray-400'}`}
+                      >
+                        MCQ Quiz
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={() => setNewExam({...newExam, type: 'descriptive'})}
+                        className={`py-2 rounded-xl font-bold text-sm border-2 transition-all ${newExam.type === 'descriptive' ? 'border-[#FF9933] bg-[#FF9933]/5 text-[#FF9933]' : 'border-gray-100 text-gray-400'}`}
+                      >
+                        Descriptive
+                      </button>
+                    </div>
+                  </div>
+                  <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1">Duration (Minutes)</label>
                     <input type="number" required value={newExam.durationMinutes} onChange={e => setNewExam({...newExam, durationMinutes: parseInt(e.target.value)})} className="w-full p-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#FF9933] outline-none" />
                   </div>
@@ -1089,21 +1107,36 @@ function AdminPanel() {
               <tbody className="divide-y divide-gray-50">
                 {allSubmissions.map((s) => {
                   const student = users.find(u => u.uid === s.userId);
-                  const canCertify = (s.score / s.total) >= 0.8;
+                  const canCertify = (s.score / s.totalMarks) >= 0.8 && s.status === 'graded';
+                  const needsGrading = s.status === 'pending';
+                  
                   return (
                     <tr key={s.id} className="hover:bg-gray-50/50 transition-colors text-sm">
                       <td className="px-6 py-4">
-                        <div className="font-bold">{student?.displayName || 'Unknown'}</div>
+                        <div className="font-bold">{s.userName || student?.displayName || 'Unknown'}</div>
                         <div className="text-[10px] text-gray-400">{student?.email || 'Anonymous'}</div>
                       </td>
-                      <td className="px-6 py-4">{s.examTitle}</td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={`font-bold ${canCertify ? 'text-green-600' : 'text-[#FF9933]'}`}>
-                          {s.score}/{s.total}
-                        </span>
+                      <td className="px-6 py-4">
+                        <div className="font-medium">{s.examTitle}</div>
+                        {needsGrading && <div className="text-[10px] text-blue-500 font-bold uppercase tracking-wider">Descriptive</div>}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        {s.isCertified ? (
+                        <div className={`font-bold ${needsGrading ? 'text-gray-300' : canCertify ? 'text-green-600' : 'text-[#FF9933]'}`}>
+                          {needsGrading ? 'Pending' : `${s.score}/${s.totalMarks}`}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        {needsGrading ? (
+                          <button 
+                            onClick={() => {
+                              setGradingSubmission(s);
+                              setManualGrade({ score: 0, feedback: '' });
+                            }}
+                            className="bg-blue-600 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider hover:bg-blue-700 transition-colors"
+                          >
+                            Grade Now
+                          </button>
+                        ) : s.isCertified ? (
                           <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1">
                             <CheckCircle2 size={12} /> Certified
                           </span>
@@ -1137,6 +1170,64 @@ function AdminPanel() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Grading Modal */}
+      {gradingSubmission && (
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+            <div className="p-6 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-bold">Grade Descriptive Paper</h3>
+                <p className="text-xs text-gray-500 uppercase font-black tracking-widest mt-1">{gradingSubmission.examTitle}</p>
+              </div>
+              <button onClick={() => setGradingSubmission(null)} className="p-2 hover:bg-gray-200 rounded-full transition-colors"><XCircle size={24} className="text-gray-400" /></button>
+            </div>
+            
+            <div className="p-8 overflow-y-auto flex-1 space-y-6">
+              <div className="bg-gray-50 p-4 rounded-xl text-sm border border-gray-200">
+                <span className="font-bold">Student:</span> {gradingSubmission.userName}
+              </div>
+
+              {gradingSubmission.answers.map((ans, idx) => (
+                <div key={idx} className="bg-orange-50/30 p-6 rounded-2xl border border-orange-100">
+                  <div className="text-[10px] font-black text-[#FF9933] uppercase tracking-widest mb-2">Question {idx + 1}</div>
+                  <p className="text-lg font-bold mb-4 italic text-gray-600">"{ans.answer || '(No answer provided)'}"</p>
+                </div>
+              ))}
+              
+              <form onSubmit={handleManualGrade} className="space-y-4 pt-4 border-t border-gray-100">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold mb-1">Score (Out of {gradingSubmission.totalMarks})</label>
+                    <input 
+                      type="number" 
+                      step="0.5" 
+                      max={gradingSubmission.totalMarks} 
+                      min={0}
+                      required 
+                      value={manualGrade.score} 
+                      onChange={e => setManualGrade({...manualGrade, score: parseFloat(e.target.value)})}
+                      className="w-full p-3 rounded-xl border-2 border-gray-100 focus:border-[#FF9933] outline-none font-bold text-xl text-[#FF9933]" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold mb-1">Feedback</label>
+                    <input 
+                      value={manualGrade.feedback} 
+                      onChange={e => setManualGrade({...manualGrade, feedback: e.target.value})} 
+                      className="w-full p-3 rounded-xl border border-gray-200 outline-none" 
+                      placeholder="Excellent realization..." 
+                    />
+                  </div>
+                </div>
+                <button type="submit" disabled={gradingLoading} className="w-full py-4 bg-[#FF9933] text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-xl shadow-[#FF9933]/20">
+                  {gradingLoading ? <Loader2 className="animate-spin" /> : "Save Marks & Finalize"}
+                </button>
+              </form>
+            </div>
+          </motion.div>
         </div>
       )}
     </div>
@@ -1219,7 +1310,7 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
                       className="w-full p-3 rounded-xl border border-gray-200"
                     >
                       <option value="mcq">Multiple Choice</option>
-                      <option value="descriptive">Descriptive (AI Graded)</option>
+                      <option value="descriptive">Descriptive (Manual Grading)</option>
                     </select>
                   </div>
                   <div>
@@ -1253,14 +1344,14 @@ function AdminExamItem({ exam, onRefresh }: { exam: Exam, onRefresh: () => void 
                   </div>
                 ) : (
                   <div>
-                    <label className="block text-sm font-bold mb-1">Ideal Answer (For AI Grading)</label>
+                    <label className="block text-sm font-bold mb-1">Ideal Answer (For Reference)</label>
                     <textarea 
                       required 
                       value={newQ.idealAnswer} 
                       onChange={e => setNewQ({...newQ, idealAnswer: e.target.value})} 
                       className="w-full p-3 rounded-xl border border-gray-200" 
                       rows={4}
-                      placeholder="Enter the correct points that the AI should look for in devotee answers..."
+                      placeholder="Enter the correct points to check for during manual grading..."
                     />
                   </div>
                 )}

@@ -19,6 +19,7 @@ export interface Exam {
   bookTitle: string;
   durationMinutes: number;
   totalQuestions: number;
+  type: 'mcq' | 'descriptive';
   creatorId: string;
   createdAt: string;
   questions?: Question[];
@@ -27,12 +28,14 @@ export interface Exam {
 export interface Submission {
   id: string;
   userId: string;
+  userName?: string;
   examId: string;
   examTitle: string;
   score: number;
-  total: number;
-  answers: (number | string)[];
-  results?: { correct: boolean; score: number }[];
+  totalMarks: number;
+  status: 'pending' | 'graded';
+  feedback?: string;
+  answers: { questionId: string; answer: string | number }[];
   completedAt: string;
   isCertified?: boolean;
 }
@@ -144,6 +147,15 @@ export const api = {
       console.error("JSON parse error for login:", e);
       throw new Error("Server response was not valid JSON. Ensure backend is running.");
     }
+  },
+  
+  async gradeSubmission(id: string, adminId: string, data: { score: number, feedback: string }): Promise<Submission> {
+    const res = await this.fetchWithLog(`/api/submissions/${id}/grade`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...data, adminId })
+    });
+    return res.json();
   },
   
   async createAdmin(adminId: string, newAdminData: { email: string, password: string, name: string }): Promise<UserProfile> {

@@ -161,6 +161,7 @@ async function startServer() {
     const exam = { 
       ...req.body, 
       id: uuidv4(), 
+      type: req.body.type || 'mcq', // 'mcq' or 'descriptive'
       questions: req.body.questions || [], 
       createdAt: new Date(),
       totalQuestions: req.body.questions?.length || 0
@@ -192,12 +193,6 @@ async function startServer() {
     res.json(exam ? (exam.questions || []) : []);
   });
 
-  app.post("/api/grade", (req, res) => {
-    const { answer, ideal } = req.body;
-    const score = Math.random() * 0.4 + 0.6;
-    res.json({ score: Number(score.toFixed(2)) });
-  });
-
   app.delete("/api/exams/:id", (req, res) => {
     const data = getData();
     data.exams = data.exams.filter((e: any) => e.id !== req.params.id);
@@ -210,11 +205,65 @@ async function startServer() {
   });
 
   app.post("/api/submissions", (req, res) => {
-    const submission = { ...req.body, id: uuidv4(), completedAt: new Date() };
     const data = getData();
+    const exam = data.exams.find((e: any) => e.id === req.body.examId);
+    
+    if (!exam) {
+      return res.status(404).json({ error: "Exam not found" });
+    }
+
+    let score = 0;
+    let totalMarks = exam.questions.length;
+    let status = exam.type === 'mcq' ? 'graded' : 'pending';
+
+    // Auto-grade MCQs
+    if (exam.type === 'mcq' && req.body.answers) {
+      req.body.answers.forEach((ans: any) => {
+        const question = exam.questions.find((q: any) => q.id === ans.questionId);
+        if (question && question.correctAnswer === ans.answer) {
+          score += 1;
+        }
+      });
+    }
+
+    const submission = { 
+      ...req.body, 
+      id: uuidv4(), 
+      status,
+      score: exam.type === 'mcq' ? score : 0,
+      totalMarks,
+      completedAt: new Date() 
+    };
+    
     data.submissions.push(submission);
     saveData(data);
     res.json(submission);
+  });
+
+  // Manual grading endpoint
+  app.post("/api/submissions/:id/grade", (req, res) => {
+    const { score, feedback, adminId } = req.body;
+    const data = getData();
+    
+    // Auth check
+    const admin = data.users.find((u: any) => u.uid === adminId && u.role === 'admin');
+    if (!admin) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    const index = data.submissions.findIndex((s: any) => s.id === req.params.id);
+    if (index !== -1) {
+      data.submissions[index].score = score;
+      data.submissions[index].feedback = feedback;
+      data.submissions[index].status = 'graded';
+      data.submissions[index].gradedBy = adminId;
+      data.submissions[index].gradedAt = new Date();
+      
+      saveData(data);
+      res.json(data.submissions[index]);
+    } else {
+      res.status(404).json({ error: "Submission not found" });
+    }
   });
 
   app.patch("/api/submissions/:id", (req, res) => {
