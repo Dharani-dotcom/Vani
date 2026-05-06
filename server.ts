@@ -7,7 +7,7 @@ import cors from 'cors';
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = 3000;
 
   // Middlewares
   app.use(cors());
@@ -242,7 +242,6 @@ async function startServer() {
   });
 
   app.post("/api/exams/:id/questions", (req, res) => {
-    console.log(`[POST /api/exams/:id/questions] ID: ${req.params.id}, Body:`, req.body);
     const data = getData();
     const examIndex = data.exams.findIndex((e: any) => e.id === req.params.id);
     if (examIndex !== -1) {
@@ -254,10 +253,8 @@ async function startServer() {
       data.exams[examIndex].totalPoints = data.exams[examIndex].questions.reduce((acc: number, q: any) => acc + (q.points || 1), 0);
       
       saveData(data);
-      console.log(`[POST /api/exams/:id/questions] Success. Question added to exam ${req.params.id}. Current questions:`, data.exams[examIndex].questions.length);
       res.json(question);
     } else {
-      console.error(`[POST /api/exams/:id/questions] Exam not found: ${req.params.id}`);
       res.status(404).json({ error: "Exam not found" });
     }
   });

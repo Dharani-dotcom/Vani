@@ -1,6 +1,8 @@
 /**
- * API utility for non-Firebase/Supabase full-stack setup
+ * API utility for non-Firebase full-stack setup
  */
+
+const BASE_URL = ''; // Same origin
 
 export interface UserProfile {
   uid: string;
@@ -22,7 +24,6 @@ export interface Exam {
   creatorId: string;
   createdAt: string;
   questions?: Question[];
-  totalQuestions?: number;
 }
 
 export interface Submission {
@@ -73,8 +74,9 @@ export const api = {
   },
 
   async getExam(id: string): Promise<Exam> {
-    const res = await this.fetchWithLog(`/api/exams/${id}`);
-    return res.json();
+    const res = await this.fetchWithLog('/api/exams');
+    const all: Exam[] = await res.json();
+    return all.find(e => e.id === id)!;
   },
 
   async getQuestions(examId: string): Promise<Question[]> {
@@ -101,18 +103,18 @@ export const api = {
   },
 
   async deleteExam(id: string, adminId: string): Promise<void> {
-    await this.fetchWithLog(`/api/exams/${id}?adminId=${adminId}`, {
+    await this.fetchWithLog(`/api/exams/${id}?adminId=${adminId}`, { 
       method: 'DELETE'
     });
   },
 
   async getSubmissions(userId?: string): Promise<Submission[]> {
     const res = await this.fetchWithLog('/api/submissions');
-    const data: Submission[] = await res.json();
+    const all: Submission[] = await res.json();
     if (userId) {
-      return data.filter(s => s.userId === userId);
+      return all.filter(s => s.userId === userId);
     }
-    return data;
+    return all;
   },
 
   async createSubmission(sub: Omit<Submission, 'id' | 'completedAt'>): Promise<Submission> {
@@ -143,7 +145,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    return res.json();
+    try {
+      return await res.json();
+    } catch (e) {
+      console.error("JSON parse error for login:", e);
+      throw new Error("Server response was not valid JSON. Ensure backend is running.");
+    }
   },
   
   async gradeSubmission(id: string, adminId: string, data: { score: number, feedback: string }): Promise<Submission> {
@@ -183,3 +190,4 @@ export const api = {
     });
   }
 };
+

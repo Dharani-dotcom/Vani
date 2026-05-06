@@ -595,6 +595,7 @@ function HomeView({ onLoginSuccess }: { onLoginSuccess: (u: UserProfile) => void
   // Admin Login States
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isRegister, setIsRegister] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const handleSecretClick = () => {
@@ -818,7 +819,6 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
         if (examData) {
           setExam(examData);
           const qList = await api.getQuestions(examId);
-          console.log("DEBUG: Got questions", qList);
           setQuestions(qList.sort((a, b) => a.order - b.order));
           setAnswers(new Array(qList.length).fill(-1));
         }
