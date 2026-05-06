@@ -7,7 +7,7 @@ import cors from 'cors';
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   // Middlewares
   app.use(cors());
@@ -94,9 +94,6 @@ async function startServer() {
       return empty;
     }
   }
-
-
-
 
   function saveData(data: any) {
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));

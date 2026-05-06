@@ -2,6 +2,8 @@
  * API utility for non-Firebase full-stack setup
  */
 
+import { supabase } from './supabase';
+
 const BASE_URL = ''; // Same origin
 
 export interface UserProfile {
@@ -69,74 +71,178 @@ export const api = {
   },
 
   async getExams(): Promise<Exam[]> {
-    const res = await this.fetchWithLog('/api/exams');
-    return res.json();
+    const { data, error } = await supabase
+      .from('exams')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    // Map camelCase if needed, but assuming snake_case in Supabase and mapping here
+    return (data || []).map(e => ({
+      ...e,
+      bookTitle: e.book_title,
+      durationMinutes: e.duration_minutes,
+      totalPoints: e.total_points,
+      creatorId: e.creator_id,
+      createdAt: e.created_at
+    })) as Exam[];
   },
 
   async getExam(id: string): Promise<Exam> {
-    const res = await this.fetchWithLog('/api/exams');
-    const all: Exam[] = await res.json();
-    return all.find(e => e.id === id)!;
+    const { data, error } = await supabase
+      .from('exams')
+      .select('*')
+      .eq('id', id)
+      .single();
+    
+    if (error) throw error;
+    return {
+      ...data,
+      bookTitle: data.book_title,
+      durationMinutes: data.duration_minutes,
+      totalPoints: data.total_points,
+      creatorId: data.creator_id,
+      createdAt: data.created_at
+    } as Exam;
   },
 
   async getQuestions(examId: string): Promise<Question[]> {
-    const res = await this.fetchWithLog(`/api/exams/${examId}/questions`);
-    return res.json();
+    const { data, error } = await supabase
+      .from('exams')
+      .select('questions')
+      .eq('id', examId)
+      .single();
+    
+    if (error) throw error;
+    return (data?.questions || []) as Question[];
   },
 
   async createQuestion(examId: string, q: Omit<Question, 'id'>): Promise<Question> {
-    const res = await this.fetchWithLog(`/api/exams/${examId}/questions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(q)
-    });
-    return res.json();
+    const exam = await this.getExam(examId);
+    const questions = exam.questions || [];
+    const newQuestion = { ...q, id: crypto.randomUUID() };
+    questions.push(newQuestion as any);
+
+    const { error } = await supabase
+      .from('exams')
+      .update({ 
+        questions,
+        total_points: questions.reduce((acc, curr) => acc + (curr.points || 1), 0)
+      })
+      .eq('id', examId);
+
+    if (error) throw error;
+    return newQuestion as any;
   },
   
   async createExam(exam: Omit<Exam, 'id' | 'createdAt'>): Promise<Exam> {
-    const res = await this.fetchWithLog('/api/exams', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(exam)
-    });
-    return res.json();
+    const { data, error } = await supabase
+      .from('exams')
+      .insert({
+        title: exam.title,
+        description: exam.description,
+        book_title: exam.bookTitle,
+        duration_minutes: exam.durationMinutes,
+        total_points: exam.totalPoints,
+        type: exam.type,
+        creator_id: exam.creatorId,
+        questions: exam.questions || []
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return {
+      ...data,
+      bookTitle: data.book_title,
+      durationMinutes: data.duration_minutes,
+      totalPoints: data.total_points,
+      creatorId: data.creator_id,
+      createdAt: data.created_at
+    } as Exam;
   },
 
   async deleteExam(id: string, adminId: string): Promise<void> {
-    await this.fetchWithLog(`/api/exams/${id}?adminId=${adminId}`, { 
-      method: 'DELETE'
-    });
+    const { error } = await supabase
+      .from('exams')
+      .delete()
+      .eq('id', id);
+    
+    if (error) throw error;
   },
 
   async getSubmissions(userId?: string): Promise<Submission[]> {
-    const res = await this.fetchWithLog('/api/submissions');
-    const all: Submission[] = await res.json();
+    let query = supabase.from('submissions').select('*');
     if (userId) {
-      return all.filter(s => s.userId === userId);
+      query = query.eq('user_id', userId);
     }
-    return all;
+    
+    const { data, error } = await query.order('completed_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map(s => ({
+      ...s,
+      userId: s.user_id,
+      userName: s.user_name,
+      examId: s.exam_id,
+      examTitle: s.exam_title,
+      totalPoints: s.total_points,
+      completedAt: s.completed_at,
+      isCertified: s.is_certified
+    })) as Submission[];
   },
 
   async createSubmission(sub: Omit<Submission, 'id' | 'completedAt'>): Promise<Submission> {
-    const res = await this.fetchWithLog('/api/submissions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(sub)
-    });
-    return res.json();
+    const { data, error } = await supabase
+      .from('submissions')
+      .insert({
+        user_id: sub.userId,
+        user_name: sub.userName,
+        exam_id: sub.examId,
+        exam_title: sub.examTitle,
+        score: sub.score,
+        total_points: sub.totalPoints,
+        status: sub.status,
+        feedback: sub.feedback,
+        answers: sub.answers
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return {
+      ...data,
+      userId: data.user_id,
+      userName: data.user_name,
+      examId: data.exam_id,
+      examTitle: data.exam_title,
+      totalPoints: data.total_points,
+      completedAt: data.completed_at,
+      isCertified: data.is_certified
+    } as Submission;
   },
 
   async certifySubmission(id: string): Promise<void> {
-    await this.fetchWithLog(`/api/submissions/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isCertified: true })
-    });
+    const { error } = await supabase
+      .from('submissions')
+      .update({ is_certified: true })
+      .eq('id', id);
+    
+    if (error) throw error;
   },
 
   async getUsers(): Promise<UserProfile[]> {
-    const res = await this.fetchWithLog('/api/users');
-    return res.json();
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*');
+    
+    if (error) throw error;
+    return (data || []).map(p => ({
+      ...p,
+      uid: p.id,
+      displayName: p.display_name,
+      isSuperAdmin: p.is_super_admin,
+      createdAt: p.created_at
+    })) as UserProfile[];
   },
 
   async login(payload: { email?: string, password?: string, name?: string, type: 'admin' | 'devotee' }): Promise<UserProfile> {
@@ -154,12 +260,30 @@ export const api = {
   },
   
   async gradeSubmission(id: string, adminId: string, data: { score: number, feedback: string }): Promise<Submission> {
-    const res = await this.fetchWithLog(`/api/submissions/${id}/grade`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...data, adminId })
-    });
-    return res.json();
+    const { data: result, error } = await supabase
+      .from('submissions')
+      .update({
+        score: data.score,
+        feedback: data.feedback,
+        status: 'graded',
+        graded_by: adminId,
+        graded_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return {
+      ...result,
+      userId: result.user_id,
+      userName: result.user_name,
+      examId: result.exam_id,
+      examTitle: result.exam_title,
+      totalPoints: result.total_points,
+      completedAt: result.completed_at,
+      isCertified: result.is_certified
+    } as Submission;
   },
   
   async createAdmin(adminId: string, newAdminData: { email: string, password: string, name: string }): Promise<UserProfile> {
