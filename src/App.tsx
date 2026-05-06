@@ -5,6 +5,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { api, UserProfile, Exam, Submission, Question } from './lib/api';
+import { applyDiacritics } from './lib/diacritics';
+import { jsPDF } from 'jspdf';
 import { 
   BookOpen, 
   LayoutDashboard, 
@@ -347,7 +349,7 @@ function ProfilePage({ profile }: { profile: UserProfile }) {
               return (
                 <div key={s.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-gray-50 transition-colors">
                   <div className="space-y-1">
-                    <h4 className="font-bold text-lg">{s.examTitle}</h4>
+                    <h4 className="font-bold text-lg">{applyDiacritics(s.examTitle || '')}</h4>
                     <p className="text-sm text-gray-400">Completed on {new Date(s.completedAt).toLocaleDateString()}</p>
                   </div>
                   <div className="flex items-center gap-6">
@@ -497,7 +499,7 @@ function LeaderboardView() {
           >
             <option value="all">Global Ranking (All Exams)</option>
             {exams.map(ex => (
-              <option key={ex.id} value={ex.id}>{ex.title}</option>
+              <option key={ex.id} value={ex.id}>{applyDiacritics(ex.title)}</option>
             ))}
           </select>
         </div>
@@ -555,7 +557,7 @@ function LeaderboardView() {
                       </div>
                     </td>
                     <td className="px-8 py-5">
-                      <div className="text-sm font-medium text-gray-500">{s.examTitle}</div>
+                      <div className="text-sm font-medium text-gray-500">{applyDiacritics(s.examTitle || '')}</div>
                     </td>
                     <td className="px-8 py-5">
                       <div className="font-mono font-bold text-gray-400">
@@ -774,8 +776,8 @@ function DashboardView({ onSelectExam }: { onSelectExam: (id: string) => void })
                   {exam.durationMinutes} min
                 </div>
               </div>
-              <h3 className="text-xl font-bold mb-2 group-hover:text-[#FF9933] transition-colors">{exam.title}</h3>
-              <p className="text-gray-500 text-sm mb-6 line-clamp-2">{exam.description}</p>
+              <h3 className="text-xl font-bold mb-2 group-hover:text-[#FF9933] transition-colors">{applyDiacritics(exam.title)}</h3>
+              <p className="text-gray-500 text-sm mb-6 line-clamp-2">{applyDiacritics(exam.description)}</p>
               
               <div className="flex items-center justify-between mt-auto">
                 <div className="flex items-center gap-1 text-gray-400 text-sm">
@@ -1723,7 +1725,25 @@ function AdminPanel() {
         </div>
       ) : (
         <div className="space-y-6">
-          <h3 className="text-xl font-bold text-gray-400 font-bold uppercase tracking-widest text-sm">Devotee Progress</h3>
+          <div className="flex justify-between items-center">
+            <h3 className="text-xl font-bold text-gray-400 font-bold uppercase tracking-widest text-sm">Devotee Progress</h3>
+            <button
+               onClick={() => {
+                 const csvContent = "data:text/csv;charset=utf-8," 
+                   + ["ID,User,Exam,Score,TotalPoints,Status,CompletedAt", ...allSubmissions.map(s => `"${s.id}","${s.userName}","${s.examTitle}","${s.score}","${s.totalPoints}","${s.status}","${s.completedAt}"`)].join("\n");
+                 const encodedUri = encodeURI(csvContent);
+                 const link = document.createElement("a");
+                 link.setAttribute("href", encodedUri);
+                 link.setAttribute("download", "submissions.csv");
+                 document.body.appendChild(link);
+                 link.click();
+                 document.body.removeChild(link);
+               }}
+               className="bg-green-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 text-sm hover:bg-green-700 transition-colors"
+            >
+              <Download size={16} /> Download All (CSV)
+            </button>
+          </div>
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
             <table className="w-full text-left">
               <thead className="bg-gray-50 text-gray-500 text-xs font-bold uppercase tracking-wider">
@@ -1733,6 +1753,7 @@ function AdminPanel() {
                   <th className="px-6 py-4 text-center">Score</th>
                   <th className="px-6 py-4 text-center">Signature</th>
                   <th className="px-6 py-4">Date</th>
+                  <th className="px-6 py-4">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -1808,12 +1829,56 @@ function AdminPanel() {
                       <td className="px-6 py-4 text-sm text-gray-400">
                         {new Date(s.completedAt).toLocaleDateString()}
                       </td>
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={async () => {
+                            try {
+                              const qList = await api.getQuestions(s.examId);
+                              const doc = new jsPDF();
+                              
+                              const cleanForPDF = (text: any) => {
+                                const str = String(text || '');
+                                return applyDiacritics(str).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                              };
+
+                              doc.setFontSize(18);
+                              doc.text("Marksheet", 20, 20);
+                              doc.setFontSize(12);
+                              doc.text(`Devotee: ${s.userName || 'Unknown'}`, 20, 30);
+                              doc.text(`Exam: ${cleanForPDF(s.examTitle)}`, 20, 37);
+                              doc.text(`Score: ${s.score}/${s.totalPoints}`, 20, 44);
+                              
+                              let y = 60;
+                              doc.text("Answers:", 20, 55);
+                              s.answers.forEach((ans, index) => {
+                                const q = qList.find(q => q.id === ans.questionId);
+                                doc.text(`${index + 1}. Q: ${cleanForPDF(q?.questionText || 'Unknown')}`, 20, y);
+                                y += 7;
+                                doc.text(`A: ${cleanForPDF(ans.answer)}`, 20, y);
+                                y += 14;
+                                if (y > 280) { // Page break
+                                    doc.addPage();
+                                    y = 20;
+                                }
+                              });
+                              
+                              doc.save(`marksheet_${s.userName || 'unknown'}.pdf`);
+                            } catch (error) {
+                              console.error("PDF Download Error:", error);
+                              alert("Error generating PDF: " + (error instanceof Error ? error.message : String(error)));
+                            }
+                          }}
+                          className="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 transition-colors"
+                        >
+                          Download PDF
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
                 {allSubmissions.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-gray-400 italic">No submissions yet</td>
+                    <td colSpan={5} className="px-6 py-12 text-center text-gray-400 italic">No submissions yet</td>
                   </tr>
                 )}
               </tbody>
