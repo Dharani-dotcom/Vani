@@ -595,7 +595,6 @@ function HomeView({ onLoginSuccess }: { onLoginSuccess: (u: UserProfile) => void
   // Admin Login States
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isRegister, setIsRegister] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const handleSecretClick = () => {

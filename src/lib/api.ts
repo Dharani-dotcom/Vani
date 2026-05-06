@@ -1,10 +1,8 @@
 /**
- * API utility for non-Firebase full-stack setup
+ * API utility for Supabase persistent storage
  */
 
 import { supabase } from './supabase';
-
-const BASE_URL = ''; // Same origin
 
 export interface UserProfile {
   uid: string;
@@ -26,6 +24,7 @@ export interface Exam {
   creatorId: string;
   createdAt: string;
   questions?: Question[];
+  totalQuestions?: number;
 }
 
 export interface Submission {
@@ -56,20 +55,6 @@ export interface Question {
 }
 
 export const api = {
-  async fetchWithLog(url: string, options?: RequestInit) {
-    console.log(`API Request: ${options?.method || 'GET'} ${url}`);
-    const res = await fetch(url, options);
-    if (!res.ok) {
-      const text = await res.text();
-      let msg = `Server error ${res.status}: ${text.slice(0, 100)}`;
-      if (text.startsWith('<!DOCTYPE html>') || text.startsWith('The page')) {
-        msg = `Backend unreachable or returned HTML. (Status ${res.status})`;
-      }
-      throw new Error(msg);
-    }
-    return res;
-  },
-
   async getExams(): Promise<Exam[]> {
     const { data, error } = await supabase
       .from('exams')
@@ -77,7 +62,7 @@ export const api = {
       .order('created_at', { ascending: false });
     
     if (error) throw error;
-    // Map camelCase if needed, but assuming snake_case in Supabase and mapping here
+    
     return (data || []).map(e => ({
       ...e,
       bookTitle: e.book_title,
@@ -96,6 +81,7 @@ export const api = {
       .single();
     
     if (error) throw error;
+    
     return {
       ...data,
       bookTitle: data.book_title,
@@ -118,8 +104,7 @@ export const api = {
   },
 
   async createQuestion(examId: string, q: Omit<Question, 'id'>): Promise<Question> {
-    const exam = await this.getExam(examId);
-    const questions = exam.questions || [];
+    const questions = await this.getQuestions(examId);
     const newQuestion = { ...q, id: crypto.randomUUID() };
     questions.push(newQuestion as any);
 
@@ -130,7 +115,6 @@ export const api = {
         total_points: questions.reduce((acc, curr) => acc + (curr.points || 1), 0)
       })
       .eq('id', examId);
-
     if (error) throw error;
     return newQuestion as any;
   },
@@ -167,7 +151,6 @@ export const api = {
       .from('exams')
       .delete()
       .eq('id', id);
-    
     if (error) throw error;
   },
 
@@ -226,7 +209,6 @@ export const api = {
       .from('submissions')
       .update({ is_certified: true })
       .eq('id', id);
-    
     if (error) throw error;
   },
 
@@ -246,17 +228,15 @@ export const api = {
   },
 
   async login(payload: { email?: string, password?: string, name?: string, type: 'admin' | 'devotee' }): Promise<UserProfile> {
-    const res = await this.fetchWithLog('/api/login', {
+    // For now, this still needs your backend implementation, but it now acts as a bridge.
+    // If you want fully client-side persistence, we would refactor this further.
+    const res = await fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    try {
-      return await res.json();
-    } catch (e) {
-      console.error("JSON parse error for login:", e);
-      throw new Error("Server response was not valid JSON. Ensure backend is running.");
-    }
+    if (!res.ok) throw new Error('Login failed');
+    return res.json();
   },
   
   async gradeSubmission(id: string, adminId: string, data: { score: number, feedback: string }): Promise<Submission> {
@@ -287,7 +267,7 @@ export const api = {
   },
   
   async createAdmin(adminId: string, newAdminData: { email: string, password: string, name: string }): Promise<UserProfile> {
-    const res = await this.fetchWithLog('/api/admin/create', {
+    const res = await fetch('/api/admin/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -301,17 +281,16 @@ export const api = {
   },
 
   async deleteAdmin(adminId: string, targetId: string): Promise<void> {
-    await this.fetchWithLog(`/api/admin/${targetId}?adminId=${adminId}`, {
+    await fetch(`/api/admin/${targetId}?adminId=${adminId}`, {
       method: 'DELETE'
     });
   },
 
   async transferSuperPower(adminId: string, targetAdminId: string): Promise<void> {
-    await this.fetchWithLog('/api/admin/transfer-super', {
+    await fetch('/api/admin/transfer-super', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ adminId, targetAdminId })
     });
   }
 };
-
