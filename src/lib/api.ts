@@ -120,6 +120,7 @@ export const api = {
   },
   
   async createExam(exam: Omit<Exam, 'id' | 'createdAt'>): Promise<Exam> {
+    console.log("DEBUG: Creating exam", exam);
     const { data, error } = await supabase
       .from('exams')
       .insert({
@@ -135,7 +136,10 @@ export const api = {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+       console.error("DEBUG: Supabase error creating exam:", error);
+       throw error;
+    }
     return {
       ...data,
       bookTitle: data.book_title,
