@@ -56,7 +56,15 @@ export interface Question {
 export const api = {
   async fetchWithLog(url: string, options?: RequestInit) {
     console.log(`API Request: ${options?.method || 'GET'} ${url}`);
-    const res = await fetch(url, options);
+    
+    // Add cache busting for GET requests
+    let fetchUrl = url;
+    if (!options || options.method === 'GET') {
+      const separator = url.includes('?') ? '&' : '?';
+      fetchUrl = `${url}${separator}_t=${Date.now()}`;
+    }
+
+    const res = await fetch(fetchUrl, options);
     if (!res.ok) {
       const text = await res.text();
       let msg = `Server error ${res.status}: ${text.slice(0, 100)}`;
