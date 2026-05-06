@@ -818,6 +818,7 @@ function ExamRunner({ examId, userId, onComplete, onCancel }: {
         if (examData) {
           setExam(examData);
           const qList = await api.getQuestions(examId);
+          console.log("DEBUG: Got questions", qList);
           setQuestions(qList.sort((a, b) => a.order - b.order));
           setAnswers(new Array(qList.length).fill(-1));
         }
