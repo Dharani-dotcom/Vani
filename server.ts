@@ -95,6 +95,27 @@ async function startServer() {
     }
   }
 
+  async function saveToGoogleSheets(studentData: any) {
+  const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxgC0xDzlGbIFCvweiMz-jaLW837robvfD7RmlUcTtco4aF2wUrA9vwGZrEmdAQjmVjhw/exec";
+
+  try {
+    await fetch(GOOGLE_SCRIPT_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        email: studentData.email,
+        displayName: studentData.displayName,
+        examName: "BG Quiz",
+        score: studentData.score,
+        answers: JSON.stringify(studentData.submissions) // This saves descriptive answers!
+      }),
+    });
+    console.log("✅ Backup saved to Google Sheets");
+  } catch (error) {
+    console.error("❌ Backup failed:", error);
+  }
+}
+
+
   function saveData(data: any) {
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
   }
